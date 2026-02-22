@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$env/static/private', () => ({
-	OPENROUTER_API_KEY: 'openrouter-test-key'
+	OPENROUTER_API_KEY: 'openrouter-test-key',
+	OPENROUTER_MODEL: 'openai/gpt-4o-mini'
 }));
 
 vi.mock('ai', () => ({
