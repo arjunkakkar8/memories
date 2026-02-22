@@ -26,7 +26,6 @@ For Google OAuth flows (`/auth/google`), set these environment variables first:
 
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI` (for local dev, typically `http://localhost:5173/auth/google/callback`)
 
 ```sh
 npm run dev

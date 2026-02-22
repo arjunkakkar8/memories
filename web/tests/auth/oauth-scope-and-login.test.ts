@@ -8,8 +8,7 @@ import { handle } from '../../src/hooks.server';
 
 const mockPrivateEnv = vi.hoisted(() => ({
 	GOOGLE_CLIENT_ID: undefined as string | undefined,
-	GOOGLE_CLIENT_SECRET: undefined as string | undefined,
-	GOOGLE_REDIRECT_URI: undefined as string | undefined
+	GOOGLE_CLIENT_SECRET: undefined as string | undefined
 }));
 
 vi.mock('$env/static/private', () => ({
@@ -18,9 +17,6 @@ vi.mock('$env/static/private', () => ({
 	},
 	get GOOGLE_CLIENT_SECRET() {
 		return mockPrivateEnv.GOOGLE_CLIENT_SECRET;
-	},
-	get GOOGLE_REDIRECT_URI() {
-		return mockPrivateEnv.GOOGLE_REDIRECT_URI;
 	}
 }));
 
@@ -69,11 +65,10 @@ describe('Arctic OAuth authorization URL builder', () => {
 	beforeEach(() => {
 		mockPrivateEnv.GOOGLE_CLIENT_ID = 'client-id';
 		mockPrivateEnv.GOOGLE_CLIENT_SECRET = 'client-secret';
-		mockPrivateEnv.GOOGLE_REDIRECT_URI = 'http://localhost:5173/auth/google/callback';
 	});
 
 	it('builds URL with readonly Gmail scope', () => {
-		const { url, codeVerifier, state } = buildAuthorizationURL();
+		const { url, codeVerifier, state } = buildAuthorizationURL(new URL('http://localhost:5173/auth/google'));
 
 		expect(state.length).toBeGreaterThan(20);
 		expect(codeVerifier.length).toBeGreaterThan(20);
@@ -91,14 +86,12 @@ describe('Google OAuth auth start route', () => {
 	beforeEach(() => {
 		mockPrivateEnv.GOOGLE_CLIENT_ID = 'client-id';
 		mockPrivateEnv.GOOGLE_CLIENT_SECRET = 'client-secret';
-		mockPrivateEnv.GOOGLE_REDIRECT_URI = 'http://localhost:5173/auth/google/callback';
 		vi.restoreAllMocks();
 	});
 
 	it('returns a setup error when OAuth env vars are missing', async () => {
 		mockPrivateEnv.GOOGLE_CLIENT_ID = undefined;
 		mockPrivateEnv.GOOGLE_CLIENT_SECRET = undefined;
-		mockPrivateEnv.GOOGLE_REDIRECT_URI = undefined;
 
 		const response = await startGoogleAuth({
 			url: new URL('http://localhost:5173/auth/google'),
@@ -114,11 +107,7 @@ describe('Google OAuth auth start route', () => {
 		};
 
 		expect(payload.error).toBe('google_oauth_not_configured');
-		expect(payload.missing).toEqual([
-			'GOOGLE_CLIENT_ID',
-			'GOOGLE_CLIENT_SECRET',
-			'GOOGLE_REDIRECT_URI'
-		]);
+		expect(payload.missing).toEqual(['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET']);
 	});
 
 	it('builds a consent URL that includes gmail.readonly', async () => {
@@ -147,13 +136,27 @@ describe('Google OAuth auth start route', () => {
 		expect(cookieNames).toContain(OAUTH_CODE_VERIFIER_COOKIE);
 		expect(cookies.setCalls.every((call) => call.options.httpOnly === true)).toBe(true);
 	});
+
+	it('uses deployment base path when generating redirect_uri', async () => {
+		const response = await startGoogleAuth({
+			url: new URL('https://example.com/memories/auth/google'),
+			cookies: new CookieJar()
+		} as never);
+
+		const location = response.headers.get('location');
+		expect(location).toBeTruthy();
+
+		const redirect = new URL(location ?? '');
+		expect(redirect.searchParams.get('redirect_uri')).toBe(
+			'https://example.com/memories/auth/google/callback'
+		);
+	});
 });
 
 describe('Google OAuth callback', () => {
 	beforeEach(() => {
 		mockPrivateEnv.GOOGLE_CLIENT_ID = 'client-id';
 		mockPrivateEnv.GOOGLE_CLIENT_SECRET = 'client-secret';
-		mockPrivateEnv.GOOGLE_REDIRECT_URI = 'http://localhost:5173/auth/google/callback';
 	});
 
 	it('rejects callbacks when state does not match', async () => {
@@ -219,6 +222,7 @@ describe('Google OAuth callback', () => {
 
 		const localsEvent = {
 			cookies,
+			url: new URL('http://localhost:5173/'),
 			locals: {
 				session: null,
 				user: null

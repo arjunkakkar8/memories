@@ -32,7 +32,7 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 	}
 
 	try {
-		const oauthTokens = await google.validateAuthorizationCode(code, codeVerifier);
+		const oauthTokens = await google.validateAuthorizationCode(code, codeVerifier, url);
 
 		const tokens = {
 			access_token: oauthTokens.accessToken(),

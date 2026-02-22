@@ -7,7 +7,7 @@ import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = ({ url, cookies }) => {
 	try {
-		const { url: authorizationUrl, state, codeVerifier } = buildAuthorizationURL();
+		const { url: authorizationUrl, state, codeVerifier } = buildAuthorizationURL(url);
 		const isSecure = import.meta.env.PROD;
 
 		setOAuthState(cookies, state, isSecure);
