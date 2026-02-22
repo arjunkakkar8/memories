@@ -1,15 +1,18 @@
 import type { QuotaBudget } from '$lib/server/scan/quota-budget';
 import { createQuotaBudget } from '$lib/server/scan/quota-budget';
+import { NOOP_STORY_LOGGER, describeStoryError, type StoryLogger } from './logging';
 import type { StoryMessageExcerpt, StoryThreadResearch } from './types';
 
 const GMAIL_API_BASE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const THREAD_LIST_UNIT_COST = 10;
 const THREAD_GET_UNIT_COST = 10;
+const METADATA_SCOPE_FULL_FORMAT_REASON = 'metadataScopeFullFormatForbidden';
 
 type StoryResearchOptions = {
 	accessToken: string;
 	fetchImpl?: typeof fetch;
 	budget?: QuotaBudget;
+	logger?: StoryLogger;
 };
 
 type GmailHeader = {
@@ -65,32 +68,154 @@ type ParticipantHistoryOptions = StoryResearchOptions & {
 };
 
 function shouldRetry(status: number): boolean {
-	return status === 429 || status === 403 || status >= 500;
+	return status === 429 || status >= 500;
+}
+
+const RETRYABLE_403_REASONS = new Set([
+	'rateLimitExceeded',
+	'userRateLimitExceeded',
+	'backendError',
+	'internalError'
+]);
+
+type GmailErrorPayload = {
+	reason: string | null;
+	providerMessage: string | null;
+};
+
+function isMetadataScopeFullFormatError(reason: string | null, providerMessage: string | null): boolean {
+	if (reason !== 'forbidden') {
+		return false;
+	}
+
+	return (
+		typeof providerMessage === 'string' &&
+		providerMessage.toLowerCase().includes("metadata scope doesn't allow format full")
+	);
 }
 
 async function waitBackoff(attempt: number): Promise<void> {
-	const delayMs = Math.min(1_000, 150 * 2 ** attempt);
+	const jitterMs = Math.floor(Math.random() * 120);
+	const delayMs = Math.min(2_500, 180 * 2 ** attempt + jitterMs);
 	await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function parseRetryAfterMs(value: string | null): number | null {
+	if (!value) {
+		return null;
+	}
+
+	const asSeconds = Number(value);
+	if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+		return asSeconds * 1000;
+	}
+
+	const asDate = Date.parse(value);
+	if (Number.isFinite(asDate)) {
+		return Math.max(0, asDate - Date.now());
+	}
+
+	return null;
+}
+
+async function parseGmailErrorPayload(response: Response): Promise<GmailErrorPayload> {
+	try {
+		const body = (await response.clone().json()) as {
+			error?: {
+				message?: unknown;
+				errors?: Array<{
+					reason?: unknown;
+				}>;
+			};
+		};
+
+		const reasonRaw = body.error?.errors?.[0]?.reason;
+		const providerMessageRaw = body.error?.message;
+		return {
+			reason: typeof reasonRaw === 'string' ? reasonRaw : null,
+			providerMessage: typeof providerMessageRaw === 'string' ? providerMessageRaw : null
+		};
+	} catch {
+		return {
+			reason: null,
+			providerMessage: null
+		};
+	}
+}
+
+function shouldRetryWithReason(status: number, reason: string | null): boolean {
+	if (status === 403) {
+		return reason !== null && RETRYABLE_403_REASONS.has(reason);
+	}
+
+	return shouldRetry(status);
 }
 
 async function fetchWithRetry<T>(
 	url: URL,
 	init: RequestInit,
 	fetchImpl: typeof fetch,
-	maxRetries = 3
+	options: {
+		maxRetries?: number;
+		operation: string;
+		logger?: StoryLogger;
+	}
 ): Promise<T> {
+	const maxRetries = options.maxRetries ?? 3;
+	const logger = options.logger ?? NOOP_STORY_LOGGER;
+
 	for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+		const attemptNumber = attempt + 1;
+		const startedAt = Date.now();
 		const response = await fetchImpl(url, init);
 
 		if (response.ok) {
+			logger.info('story.gmail.request.succeeded', {
+				operation: options.operation,
+				attempt: attemptNumber,
+				durationMs: Date.now() - startedAt
+			});
 			return (await response.json()) as T;
 		}
 
-		if (!shouldRetry(response.status) || attempt === maxRetries) {
-			throw new Error(`gmail_request_failed:${response.status}`);
+		const { reason, providerMessage } = await parseGmailErrorPayload(response);
+		const retryable = shouldRetryWithReason(response.status, reason);
+
+		if (!retryable || attempt === maxRetries) {
+			const normalizedReason = isMetadataScopeFullFormatError(reason, providerMessage)
+				? METADATA_SCOPE_FULL_FORMAT_REASON
+				: reason;
+
+			logger.warn('story.gmail.request.failed', {
+				operation: options.operation,
+				attempt: attemptNumber,
+				status: response.status,
+				reason: normalizedReason,
+				providerMessage,
+				durationMs: Date.now() - startedAt,
+				willRetry: false
+			});
+			const reasonSuffix = normalizedReason ? `:${normalizedReason}` : '';
+			throw new Error(`gmail_request_failed:${response.status}:${options.operation}${reasonSuffix}`);
 		}
 
-		await waitBackoff(attempt);
+		const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+		logger.warn('story.gmail.request.failed', {
+			operation: options.operation,
+			attempt: attemptNumber,
+			status: response.status,
+			reason,
+			providerMessage,
+			durationMs: Date.now() - startedAt,
+			retryAfterMs,
+			willRetry: true
+		});
+
+		if (retryAfterMs !== null) {
+			await new Promise((resolve) => setTimeout(resolve, Math.min(5_000, retryAfterMs)));
+		} else {
+			await waitBackoff(attempt);
+		}
 	}
 
 	throw new Error('gmail_request_failed:unknown');
@@ -215,25 +340,39 @@ export async function fetchSelectedThread(
 
 	const budget = options.budget ?? createStoryResearchBudget();
 	const fetchImpl = options.fetchImpl ?? fetch;
+	const logger = options.logger ?? NOOP_STORY_LOGGER;
 
 	budget.consumeGmailUnits(THREAD_GET_UNIT_COST);
 
 	return budget.withConcurrencySlot('gmail', async () => {
+		const startedAt = Date.now();
 		const url = new URL(`${GMAIL_API_BASE_URL}/threads/${threadId}`);
 		url.searchParams.set('format', 'full');
 
-		const thread = await fetchWithRetry<GmailThreadResponse>(
-			url,
-			{
-				method: 'GET',
-				headers: {
-					authorization: `Bearer ${options.accessToken}`
+		try {
+			const thread = await fetchWithRetry<GmailThreadResponse>(
+				url,
+				{
+					method: 'GET',
+					headers: {
+						authorization: `Bearer ${options.accessToken}`
+					}
+				},
+				fetchImpl,
+				{
+					operation: 'threads.get',
+					logger
 				}
-			},
-			fetchImpl
-		);
+			);
 
-		return toThreadResearch(thread, threadId);
+			return toThreadResearch(thread, threadId);
+		} catch (error) {
+			logger.warn('story.gmail.fetch_selected_thread.failed', {
+				durationMs: Date.now() - startedAt,
+				...describeStoryError(error)
+			});
+			throw error;
+		}
 	});
 }
 
@@ -245,7 +384,8 @@ export async function searchRelatedThreads(options: RelatedSearchOptions): Promi
 		subjectHint,
 		maxResults = 4,
 		fetchImpl = fetch,
-		budget = createStoryResearchBudget()
+		budget = createStoryResearchBudget(),
+		logger = NOOP_STORY_LOGGER
 	} = options;
 
 	if (!accessToken) {
@@ -263,22 +403,35 @@ export async function searchRelatedThreads(options: RelatedSearchOptions): Promi
 	budget.consumeGmailUnits(THREAD_LIST_UNIT_COST);
 
 	const listResponse = await budget.withConcurrencySlot('gmail', async () => {
+		const startedAt = Date.now();
 		const listUrl = new URL(`${GMAIL_API_BASE_URL}/threads`);
 		listUrl.searchParams.set('maxResults', String(Math.max(1, maxResults * 2)));
 		if (querySegments.length > 0) {
 			listUrl.searchParams.set('q', querySegments.join(' '));
 		}
 
-		return fetchWithRetry<GmailThreadListResponse>(
-			listUrl,
-			{
-				method: 'GET',
-				headers: {
-					authorization: `Bearer ${accessToken}`
+		try {
+			return await fetchWithRetry<GmailThreadListResponse>(
+				listUrl,
+				{
+					method: 'GET',
+					headers: {
+						authorization: `Bearer ${accessToken}`
+					}
+				},
+				fetchImpl,
+				{
+					operation: 'threads.list',
+					logger
 				}
-			},
-			fetchImpl
-		);
+			);
+		} catch (error) {
+			logger.warn('story.gmail.search_related_threads_list.failed', {
+				durationMs: Date.now() - startedAt,
+				...describeStoryError(error)
+			});
+			throw error;
+		}
 	});
 
 	const threadIds = [...new Set((listResponse.threads ?? []).map((thread) => thread.id).filter(Boolean) as string[])];
@@ -290,10 +443,18 @@ export async function searchRelatedThreads(options: RelatedSearchOptions): Promi
 			await fetchSelectedThread(threadId, {
 				accessToken,
 				fetchImpl,
-				budget
+				budget,
+				logger
 			})
 		);
 	}
+
+	logger.info('story.gmail.search_related_threads.completed', {
+		hasParticipant: Boolean(participant),
+		hasSubjectHint: Boolean(subjectHint),
+		requestedResults: maxResults,
+		returnedResults: results.length
+	});
 
 	return results;
 }
@@ -313,5 +474,11 @@ export async function getParticipantHistory(options: ParticipantHistoryOptions):
 		maxResults
 	});
 
-	return results.filter((thread) => thread.participants.includes(normalized));
+	const filtered = results.filter((thread) => thread.participants.includes(normalized));
+	(shared.logger ?? NOOP_STORY_LOGGER).info('story.gmail.get_participant_history.completed', {
+		requestedResults: maxResults,
+		returnedResults: filtered.length
+	});
+
+	return filtered;
 }

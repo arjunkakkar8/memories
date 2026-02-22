@@ -72,7 +72,7 @@ describe('Arctic OAuth authorization URL builder', () => {
 
 		expect(state.length).toBeGreaterThan(20);
 		expect(codeVerifier.length).toBeGreaterThan(20);
-		expect(url.searchParams.get('include_granted_scopes')).toBe('true');
+		expect(url.searchParams.has('include_granted_scopes')).toBe(false);
 		expect(url.searchParams.get('access_type')).toBe('offline');
 		expect(url.searchParams.get('code_challenge_method')).toBe('S256');
 		expect(url.searchParams.get('prompt')).toBe('consent');
@@ -124,7 +124,7 @@ describe('Google OAuth auth start route', () => {
 		expect(location).toBeTruthy();
 
 		const redirect = new URL(location ?? '');
-		expect(redirect.searchParams.get('include_granted_scopes')).toBe('true');
+		expect(redirect.searchParams.has('include_granted_scopes')).toBe(false);
 		expect(redirect.searchParams.get('state')).toBeTruthy();
         expect(redirect.searchParams.get('code_challenge_method')).toBe('S256');
 
@@ -243,5 +243,29 @@ describe('Google OAuth callback', () => {
 
 		expect(cookies.deleteCalls.some((call) => call.name === OAUTH_STATE_COOKIE)).toBe(true);
 		expect(cookies.deleteCalls.some((call) => call.name === OAUTH_CODE_VERIFIER_COOKIE)).toBe(true);
+	});
+
+	it('rejects callbacks when granted scopes do not include gmail.readonly', async () => {
+		const cookies = new CookieJar();
+		cookies.set(OAUTH_STATE_COOKIE, 'state-123', { path: '/' });
+		cookies.set(OAUTH_CODE_VERIFIER_COOKIE, 'verifier-123', { path: '/' });
+
+		vi.spyOn(google, 'validateAuthorizationCode').mockResolvedValue({
+			accessToken: () => 'access-token',
+			hasRefreshToken: () => true,
+			refreshToken: () => 'refresh-token',
+			idToken: () =>
+				encodeFakeIdToken({ sub: 'google-subject-1', email: 'person@example.com', name: 'Alex' }),
+			hasScopes: () => true,
+			scopes: () => ['openid', 'email', 'profile']
+		} as Awaited<ReturnType<typeof google.validateAuthorizationCode>>);
+
+		const response = await oauthCallback({
+			url: new URL('http://localhost:5173/auth/google/callback?code=code-1&state=state-123'),
+			cookies
+		} as never);
+
+		expect(response.status).toBe(403);
+		expect(cookies.setCalls.some((call) => call.name === SESSION_COOKIE)).toBe(false);
 	});
 });

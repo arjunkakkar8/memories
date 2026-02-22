@@ -1,4 +1,5 @@
 import { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } from '$env/static/private';
+import { AUTH_SCOPES } from './scope-plan';
 
 const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
@@ -37,7 +38,8 @@ export async function refreshGoogleAccessToken(
 		client_id: GOOGLE_CLIENT_ID,
 		client_secret: GOOGLE_CLIENT_SECRET,
 		grant_type: 'refresh_token',
-		refresh_token: refreshToken
+		refresh_token: refreshToken,
+		scope: AUTH_SCOPES.join(' ')
 	});
 
 	const response = await fetchImpl(GOOGLE_TOKEN_ENDPOINT, {

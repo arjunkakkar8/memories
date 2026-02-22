@@ -69,7 +69,6 @@ export function buildAuthorizationURL(currentUrl: URL): {
 
 	const url = google.createAuthorizationURL(state, codeVerifier, AUTH_SCOPES, currentUrl);
 	url.searchParams.set('access_type', 'offline');
-	url.searchParams.set('include_granted_scopes', 'true');
 	url.searchParams.set('prompt', 'consent');
 
 	return { url, state, codeVerifier };

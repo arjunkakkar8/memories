@@ -1,3 +1,5 @@
+import type { StoryLogger } from './logging';
+
 export type StoryRequest = {
 	threadId: string;
 };
@@ -55,4 +57,5 @@ export type StoryPipelineOptions = {
 	accessToken: string;
 	fetchImpl?: typeof fetch;
 	model?: string;
+	logger?: StoryLogger;
 };

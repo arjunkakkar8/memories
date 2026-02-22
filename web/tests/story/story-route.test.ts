@@ -166,6 +166,44 @@ function jsonRequest(body: unknown): Request {
 		});
 	});
 
+	it('requires Gmail reauth when provider reports insufficient permissions', async () => {
+		vi.mocked(runStoryPipeline).mockRejectedValueOnce(
+			new Error('gmail_request_failed:403:threads.get:insufficientPermissions')
+		);
+
+		const response = await createStory({
+			request: jsonRequest({ threadId: 'thread-123' }),
+			locals: {
+				session: { id: 'session-1' }
+			},
+			fetch
+		} as never);
+
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({
+			error: { code: 'gmail_reauth_required' }
+		});
+	});
+
+	it('requires Gmail reauth when token only has metadata Gmail scope', async () => {
+		vi.mocked(runStoryPipeline).mockRejectedValueOnce(
+			new Error('gmail_request_failed:403:threads.get:metadataScopeFullFormatForbidden')
+		);
+
+		const response = await createStory({
+			request: jsonRequest({ threadId: 'thread-123' }),
+			locals: {
+				session: { id: 'session-1' }
+			},
+			fetch
+		} as never);
+
+		expect(response.status).toBe(401);
+		expect(await response.json()).toEqual({
+			error: { code: 'gmail_reauth_required' }
+		});
+	});
+
 	it('refreshes expired Gmail auth and retries story generation once', async () => {
 		vi.mocked(runStoryPipeline)
 			.mockRejectedValueOnce(new Error('gmail_request_failed:401 access token expired'))
@@ -185,7 +223,7 @@ function jsonRequest(body: unknown): Request {
 		vi.mocked(refreshGoogleAccessToken).mockResolvedValue({
 			accessToken: 'refreshed-access-token',
 			expiresIn: 3600,
-			scope: null,
+			scope: 'openid email profile https://www.googleapis.com/auth/gmail.readonly',
 			tokenType: 'Bearer'
 		});
 
@@ -202,7 +240,8 @@ function jsonRequest(body: unknown): Request {
 			story: 'Recovered story output'
 		});
 		expect(refreshGoogleAccessToken).toHaveBeenCalledWith('gmail-refresh-token', { fetchImpl: fetch });
-		expect(rememberAccessToken).toHaveBeenCalledWith('session-1', 'refreshed-access-token');
+		const refreshedScopes = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/gmail.readonly'];
+		expect(rememberAccessToken).toHaveBeenCalledWith('session-1', 'refreshed-access-token', refreshedScopes);
 		expect(runStoryPipeline).toHaveBeenCalledTimes(2);
 		expect(runStoryPipeline).toHaveBeenNthCalledWith(
 			2,

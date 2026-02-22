@@ -73,7 +73,7 @@ describe('google token refresh primitives', () => {
 				JSON.stringify({
 					access_token: 'new-access-token',
 					expires_in: 3600,
-					scope: 'openid email profile',
+					scope: 'openid email profile https://www.googleapis.com/auth/gmail.readonly',
 					token_type: 'Bearer'
 				}),
 				{ status: 200 }
@@ -89,6 +89,32 @@ describe('google token refresh primitives', () => {
 			expiresIn: 3600,
 			tokenType: 'Bearer'
 		});
+	});
+
+	it('sends requested scopes in the refresh request body', async () => {
+		let capturedBody: URLSearchParams | null = null;
+		const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+			capturedBody = init?.body as URLSearchParams;
+			return new Response(
+				JSON.stringify({
+					access_token: 'new-access-token',
+					expires_in: 3600,
+					scope: 'openid email profile https://www.googleapis.com/auth/gmail.readonly',
+					token_type: 'Bearer'
+				}),
+				{ status: 200 }
+			);
+		});
+
+		await refreshGoogleAccessToken('refresh-token', {
+			fetchImpl: fetchMock as never
+		});
+
+		expect(capturedBody).not.toBeNull();
+		const scopeParam = capturedBody!.get('scope');
+		expect(scopeParam).toBeTruthy();
+		expect(scopeParam).toContain('https://www.googleapis.com/auth/gmail.readonly');
+		expect(scopeParam).toContain('openid');
 	});
 
 	it('fails with stable error when Google token endpoint rejects refresh', async () => {
@@ -112,7 +138,7 @@ describe('google token refresh primitives', () => {
 			refreshToken: () => 'google-refresh-token',
 			idToken: () => encodeFakeIdToken({ sub: 'google-subject-1', email: 'person@example.com', name: 'Alex' }),
 			hasScopes: () => true,
-			scopes: () => ['openid', 'email', 'profile']
+			scopes: () => ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/gmail.readonly']
 		} as Awaited<ReturnType<typeof google.validateAuthorizationCode>>);
 
 		const response = await oauthCallback({

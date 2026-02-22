@@ -55,10 +55,14 @@
 				return 'Your session expired. Please sign in again, then retry.';
 			case 'gmail_access_token_missing':
 				return 'We could not access Gmail for this session. Reconnect and try again.';
+			case 'gmail_reauth_required':
+				return 'Gmail access needs to be reconnected. Please sign in again, then retry.';
 			case 'thread_id_required':
 				return 'This story handoff is missing a thread id. Please return and select a thread again.';
 			case 'story_model_unavailable':
 				return 'Story generation is temporarily unavailable. Please retry in a moment.';
+			case 'story_gmail_request_failed':
+				return 'Gmail is temporarily unavailable or rate-limited. Please retry in a moment.';
 			case 'invalid_request_body':
 				return 'The story request was invalid. Please retry from the candidate browser.';
 			default:
