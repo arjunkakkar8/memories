@@ -32,7 +32,7 @@ describe('/story/+page.svelte', () => {
 		vi.restoreAllMocks();
 	});
 
-	it('auto-triggers story generation with handoff thread id and shows loading copy', async () => {
+	it('auto-triggers story generation with handoff thread id and shows loader', async () => {
 		const fetchSpy = vi
 			.spyOn(globalThis, 'fetch')
 			.mockResolvedValue(jsonResponse({ story: 'The story arrives.' }));
@@ -43,7 +43,9 @@ describe('/story/+page.svelte', () => {
 			}
 		});
 
-		await expect.element(page.getByText('Writing your story...')).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('status', { name: 'Writing your story' }))
+			.toBeInTheDocument();
 		expect(fetchSpy).toHaveBeenCalledWith(
 			'/api/story',
 			expect.objectContaining({
@@ -68,7 +70,9 @@ describe('/story/+page.svelte', () => {
 
 		await expect.element(page.getByText('First paragraph.')).toBeInTheDocument();
 		await expect.element(page.getByText('Second paragraph.')).toBeInTheDocument();
-		await expect.element(page.getByText('Writing your story...')).not.toBeInTheDocument();
+		await expect
+			.element(page.getByRole('status', { name: 'Writing your story' }))
+			.not.toBeInTheDocument();
 	});
 
 	it('shows error messaging and retries without duplicate concurrent calls', async () => {
@@ -90,7 +94,9 @@ describe('/story/+page.svelte', () => {
 
 		const retryButton = page.getByRole('button', { name: 'Retry story generation' });
 		await retryButton.click();
-		await expect.element(page.getByText('Writing your story...')).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('status', { name: 'Writing your story' }))
+			.toBeInTheDocument();
 		await new Promise((resolve) => setTimeout(resolve, 25));
 
 		expect(fetchSpy).toHaveBeenCalledTimes(2);

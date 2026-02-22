@@ -4,12 +4,14 @@
 	import type { SessionUser } from '$lib/server/auth/session';
 	import { createCandidateStore, type ScanStoreState } from '$lib/scan/candidate-store';
 	import { startScanStream, type ScanStreamHandle } from '$lib/scan/client-stream';
-	import { toProgressView } from '$lib/ui/candidate-browser/progress';
 	import { buildStoryHandoffHref } from '$lib/ui/candidate-browser/story-handoff';
 	import {
 		formatCandidateDateRange,
 		toEmotionalPreview
 	} from '$lib/ui/candidate-browser/candidate-preview';
+	import Button from '$lib/components/ui/Button.svelte';
+	import Card from '$lib/components/ui/Card.svelte';
+	import DotsLoader from '$lib/components/ui/DotsLoader.svelte';
 
 	type PageData = {
 		user: SessionUser | null;
@@ -30,7 +32,9 @@
 		error: null
 	});
 	let activeStream: ScanStreamHandle | null = null;
-	let selectedThreadId = $state<string | null>(null);
+	let isHeroTransitioning = $state(false);
+	let heroTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+  let heroHeight = $state(0);
 
 	const unsubscribe = candidateStore.subscribe((value) => {
 		scanState = value;
@@ -39,23 +43,22 @@
 	onDestroy(() => {
 		unsubscribe();
 		activeStream?.stop();
+		if (heroTransitionTimer) {
+			clearTimeout(heroTransitionTimer);
+			heroTransitionTimer = null;
+		}
 	});
 
 	const hasRun = $derived(scanState.runId > 0);
 	const isRunning = $derived(scanState.status === 'running');
-	const progressView = $derived(toProgressView(scanState.progress, scanState.candidates.length));
-	const selectedCandidate = $derived(
-		scanState.candidates.find((candidate) => candidate.threadId === selectedThreadId) ?? null
+	const shouldCenterContent = $derived(
+		!hasRun &&
+			!isRunning &&
+			scanState.status !== 'error' &&
+			scanState.candidates.length === 0 &&
+			!isHeroTransitioning
 	);
-
-	$effect(() => {
-		if (
-			selectedThreadId &&
-			!scanState.candidates.some((candidate) => candidate.threadId === selectedThreadId)
-		) {
-			selectedThreadId = null;
-		}
-	});
+	const isExploreDisabled = $derived(!data.scanEnabled || isRunning || isHeroTransitioning);
 
 	async function startScan(): Promise<void> {
 		if (!data.scanEnabled) {
@@ -63,8 +66,20 @@
 		}
 
 		activeStream?.stop();
+		isHeroTransitioning = true;
+		await new Promise<void>((resolve) => {
+			heroTransitionTimer = setTimeout(() => {
+				heroTransitionTimer = null;
+				resolve();
+			}, 320);
+		});
+
+		if (heroTransitionTimer !== null) {
+			return;
+		}
 
 		const runId = candidateStore.startRun();
+		isHeroTransitioning = false;
 		const stream = startScanStream({
 			onEvent: (event) => {
 				candidateStore.applyEvent(runId, event);
@@ -88,115 +103,114 @@
 			if (activeStream === stream) {
 				activeStream = null;
 			}
+
+			if (scanState.status !== 'running') {
+				isHeroTransitioning = false;
+			}
 		}
 	}
 
-	function selectCandidate(threadId: string): void {
-		selectedThreadId = threadId;
-	}
-
-	async function generateStory(): Promise<void> {
-		const href = buildStoryHandoffHref(selectedCandidate);
-		if (!href) {
-			return;
-		}
-
+	async function openCandidateStory(href: string, event: MouseEvent): Promise<void> {
+		event.preventDefault();
 		await goto(href);
 	}
-
 </script>
 
-<h1>Welcome</h1>
+<svelte:head>
+	<title>Memories | Surface story-worthy email threads</title>
+</svelte:head>
 
-{#if data.user}
-	<h2>Current user</h2>
-	<ul>
-		<li><strong>Name:</strong> {data.user.name ?? 'Unknown'}</li>
-		<li><strong>Email:</strong> {data.user.email ?? 'Unknown'}</li>
-		<li><strong>Subject:</strong> {data.user.subject}</li>
-	</ul>
+<main class="min-h-screen py-[clamp(1.25rem,3.8vw,2.75rem)]">
+    <div class="mx-auto w-full max-w-270 px-5 sm:px-6">
 
-	<section aria-label="Scan pipeline">
-		<h2>Scan pipeline</h2>
-		<p>
-			Run a scan to stream ranked memory candidates progressively. Re-scan always starts a fresh run.
-		</p>
-
-		<button type="button" onclick={startScan} disabled={!data.scanEnabled || isRunning}>
-			{hasRun ? 'Re-scan' : 'Start scan'}
-		</button>
-
-		{#if isRunning}
-			<p>Scan in progress...</p>
-		{/if}
-
-		{#if progressView}
-			<section aria-label="Live scan progress" role="status">
-				<h3>Live progress</h3>
-				<p>
-					<strong>Stage:</strong> {progressView.stageLabel} ({progressView.processed}/{progressView.total})
-				</p>
-				<p>{progressView.statusCopy}</p>
-				<p>{progressView.candidateCopy}</p>
-			</section>
-		{/if}
-
-		{#if scanState.status === 'error' && scanState.error}
-			<p role="status">
-				<strong>Scan failed:</strong> {scanState.error.message}
+	<div
+		class={`transition-[height] duration-500 ease-out flex flex-col justify-center ${shouldCenterContent ? 'h-[calc(100vh-5.5rem)]': 'h-(--hero-height)'}`}
+    style:--hero-height="{heroHeight}px"
+	>
+		<section
+			class="mb-4 grid justify-items-center gap-6 px-[clamp(0.35rem,2.1vw,1.25rem)] py-[clamp(1.45rem,4.4vw,3.1rem)] text-center"
+			aria-label="Memories landing hero"
+      bind:clientHeight={heroHeight}
+		>
+			<h1 class="max-w-[20ch] text-[clamp(2.3rem,6.3vw,4.3rem)] text-balance">
+				Turn your emails <br /> into readable <i>memories</i>.
+			</h1>
+			<p class="max-w-[68ch] text-[clamp(1.02rem,2.4vw,1.2rem)] text-ink-muted">
+				Email access is readonly, never persisted, and adheres to zero data retention.
 			</p>
-		{/if}
+			<div class="grid justify-items-center gap-2">
+				{#if data.user}
+					<Button onclick={startScan} disabled={isExploreDisabled}>
+						{hasRun && !isRunning ? 'Find More Seeds' : 'Find a starting point'}
+					</Button>
+				{:else}
+					<Button href="/auth/google">Login to Gmail</Button>
+				{/if}
+			</div>
+		</section>
+      </div>
 
-		{#if scanState.status === 'success'}
-			<p role="status">Scan complete. {scanState.totalCandidates} candidates received.</p>
-		{/if}
+		{#if data.user}
+			<section
+				aria-label="Candidate browser"
+				class={`${shouldCenterContent ? 'grid gap-4' : 'mt-5 grid gap-4'}`}
+			>
+				{#if isRunning}
+					<div class="flex w-full justify-center">
+						<DotsLoader label="Scan in progress" />
+					</div>
+				{/if}
 
-		<h3>Candidates ({scanState.candidates.length})</h3>
-		<button type="button" onclick={generateStory} disabled={!selectedCandidate}>
-			Generate story
-		</button>
-		{#if scanState.candidates.length === 0}
-			<p>No candidates yet.</p>
+				{#if scanState.status === 'error' && scanState.error}
+					<p class="text-ink-muted" role="status">
+						We could not load memory candidates right now. Please try exploring again.
+					</p>
+				{/if}
+
+				{#if scanState.candidates.length > 0}
+					<ul
+						class="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-2 xl:grid-cols-3"
+						aria-label="Candidate browser"
+					>
+						{#each scanState.candidates as candidate (candidate.threadId)}
+							{@const candidateHref =
+								buildStoryHandoffHref(candidate) ??
+								`/story?threadId=${encodeURIComponent(candidate.threadId)}`}
+							<li>
+								<Card className="grid gap-3 p-[0.85rem]" elevated={true}>
+									<a
+										href={candidateHref}
+										class="grid gap-2 rounded-[0.6rem] border border-transparent bg-transparent p-[0.1rem] text-left no-underline transition-transform duration-150 hover:-translate-y-px"
+										onclick={(event) => openCandidateStory(candidateHref, event)}
+									>
+										<h2 class="text-[1.08rem]">
+											{candidate.metadata.subject ?? 'Untitled thread'}
+										</h2>
+										<p class="text-[0.9rem] text-ink-body">
+											Date range: {formatCandidateDateRange(
+												candidate.metadata.firstMessageAt,
+												candidate.metadata.lastMessageAt
+											)}
+										</p>
+										<p class="text-[0.9rem] text-ink-body">
+											{toEmotionalPreview(candidate.metadata.latestSnippet)}
+										</p>
+									</a>
+								</Card>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</section>
 		{:else}
-			<ul role="radiogroup" aria-label="Candidate browser">
-				{#each scanState.candidates as candidate (candidate.threadId)}
-					<li data-selected={candidate.threadId === selectedThreadId}>
-						<article>
-							<h4>{candidate.metadata.subject ?? 'Untitled thread'}</h4>
-							<label>
-								<input
-									type="radio"
-									name="selected-candidate"
-									value={candidate.threadId}
-									checked={candidate.threadId === selectedThreadId}
-									onchange={() => selectCandidate(candidate.threadId)}
-								/>
-								Select {candidate.metadata.subject ?? 'candidate'}
-							</label>
-							{#if candidate.threadId === selectedThreadId}
-								<p><strong>Selected for story generation</strong></p>
-							{/if}
-							<p>Rank #{candidate.rank} · score {candidate.combinedScore.toFixed(2)}</p>
-							<p>
-								Date range: {formatCandidateDateRange(
-									candidate.metadata.firstMessageAt,
-									candidate.metadata.lastMessageAt
-								)}
-							</p>
-							<p>
-								Participants:{' '}
-								{candidate.metadata.participants.length > 0
-									? candidate.metadata.participants.join(', ')
-									: 'Unknown participants'}
-							</p>
-							<p>{candidate.metadata.messageCount} messages</p>
-							<p>{toEmotionalPreview(candidate.metadata.latestSnippet)}</p>
-						</article>
-					</li>
-				{/each}
-			</ul>
+			<Card className="grid gap-3 p-4" elevated={true}>
+				<h2>Connect your inbox to begin</h2>
+				<p class="text-ink-muted">
+					No user is currently logged in. Sign in with Gmail to explore memory candidates and write
+					stories.
+				</p>
+				<Button href="/auth/google">Sign in with Google</Button>
+			</Card>
 		{/if}
-	</section>
-{:else}
-	<p>No user is currently logged in.</p>
-{/if}
+	</div>
+</main>

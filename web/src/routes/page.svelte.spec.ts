@@ -1,7 +1,10 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import { formatCandidateDateRange, toEmotionalPreview } from '$lib/ui/candidate-browser/candidate-preview';
+import {
+	formatCandidateDateRange,
+	toEmotionalPreview
+} from '$lib/ui/candidate-browser/candidate-preview';
 import { buildStoryHandoffHref } from '$lib/ui/candidate-browser/story-handoff';
 import Page from './+page.svelte';
 
@@ -36,7 +39,6 @@ type CandidateMetadataOverride = {
 	firstMessageAt?: string | null;
 	lastMessageAt?: string | null;
 	latestSnippet?: string | null;
-	combinedScore?: number;
 	rank?: number;
 };
 
@@ -57,14 +59,14 @@ function createCandidate(
 
 	return {
 		threadId,
-		combinedScore: typeof overrides.combinedScore === 'number' ? overrides.combinedScore : 0.91,
+		combinedScore: 0.91,
 		rank: typeof overrides.rank === 'number' ? overrides.rank : 1,
 		metadata
 	};
 }
 
 describe('/+page.svelte', () => {
-	it('renders the scan trigger for authenticated users', async () => {
+	it('renders landing hero CTA and privacy fine print', async () => {
 		render(Page, {
 			data: {
 				user: baseUser,
@@ -72,13 +74,20 @@ describe('/+page.svelte', () => {
 			}
 		});
 
-		const heading = page.getByRole('heading', { level: 1 });
-		await expect.element(heading).toBeInTheDocument();
-		await expect.element(page.getByRole('button', { name: 'Start scan' })).toBeInTheDocument();
-		await expect.element(page.getByText('No candidates yet.')).toBeInTheDocument();
+		await expect.element(page.getByRole('heading', { level: 1 })).toBeInTheDocument();
+		await expect
+			.element(page.getByRole('button', { name: 'Find a starting point' }))
+			.toBeInTheDocument();
+		await expect
+			.element(
+				page.getByText(
+					'Email access is readonly, never persisted, and adheres to zero data retention.'
+				)
+			)
+			.toBeInTheDocument();
 	});
 
-	it('hides scan controls for anonymous visitors', async () => {
+	it('shows auth link CTA for anonymous visitors', async () => {
 		render(Page, {
 			data: {
 				user: null,
@@ -86,22 +95,14 @@ describe('/+page.svelte', () => {
 			}
 		});
 
+		await expect.element(page.getByRole('link', { name: 'Login to Gmail' })).toBeInTheDocument();
 		await expect.element(page.getByText('No user is currently logged in.')).toBeInTheDocument();
-		await expect.element(page.getByRole('button', { name: 'Start scan' })).not.toBeInTheDocument();
 	});
 
-	it('keeps candidate browser heading visible after first surfaced thread', async () => {
+	it('shows animated dot loader while scan is running', async () => {
 		mockStartScanStream.mockReset();
-		mockStartScanStream.mockImplementationOnce(({ onEvent }) => {
-			onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:03:00.000Z' } });
-			onEvent({
-				event: 'scan.candidates',
-				data: {
-					batchIndex: 0,
-					candidates: [createCandidate('Heading Thread', 'thread-heading')]
-				}
-			});
-			return { stop: vi.fn(), done: Promise.resolve() };
+		mockStartScanStream.mockImplementationOnce(() => {
+			return { stop: vi.fn(), done: new Promise(() => {}) };
 		});
 
 		render(Page, {
@@ -111,81 +112,24 @@ describe('/+page.svelte', () => {
 			}
 		});
 
-		await page.getByRole('button', { name: 'Start scan' }).click();
-		await expect.element(page.getByRole('heading', { level: 3, name: 'Candidates (1)' })).toBeInTheDocument();
+		await page.getByRole('button', { name: 'Find a starting point' }).click();
+		await expect
+			.element(page.getByRole('status', { name: 'Scan in progress' }))
+			.toBeInTheDocument();
 	});
 
-	it('replaces stale candidates on re-scan', async () => {
+	it('renders candidates as individual cards after explore', async () => {
 		mockStartScanStream.mockReset();
-
-		mockStartScanStream
-			.mockImplementationOnce(({ onEvent }) => {
-				onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:00:00.000Z' } });
-				onEvent({
-					event: 'scan.candidates',
-					data: {
-						batchIndex: 0,
-						candidates: [createCandidate('Old Thread', 'thread-old')]
-					}
-				});
-				onEvent({
-					event: 'scan.complete',
-					data: { completedAt: '2026-02-22T00:00:01.000Z', totalCandidates: 1 }
-				});
-
-				return { stop: vi.fn(), done: Promise.resolve() };
-			})
-			.mockImplementationOnce(({ onEvent }) => {
-				onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:01:00.000Z' } });
-				onEvent({
-					event: 'scan.candidates',
-					data: {
-						batchIndex: 0,
-						candidates: [createCandidate('Fresh Thread', 'thread-fresh')]
-					}
-				});
-				onEvent({
-					event: 'scan.complete',
-					data: { completedAt: '2026-02-22T00:01:01.000Z', totalCandidates: 1 }
-				});
-
-				return { stop: vi.fn(), done: Promise.resolve() };
-			});
-
-		render(Page, {
-			data: {
-				user: baseUser,
-				scanEnabled: true
-			}
-		});
-
-		await page.getByRole('button', { name: 'Start scan' }).click();
-		await expect.element(page.getByRole('heading', { name: 'Old Thread' })).toBeInTheDocument();
-
-		await page.getByRole('button', { name: 'Re-scan' }).click();
-		await expect.element(page.getByRole('heading', { name: 'Fresh Thread' })).toBeInTheDocument();
-		await expect.element(page.getByText('Old Thread')).not.toBeInTheDocument();
-	});
-
-	it('shows human-readable progress labels and running candidate counts', async () => {
-		mockStartScanStream.mockReset();
-
 		mockStartScanStream.mockImplementationOnce(({ onEvent }) => {
-			onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:00:00.000Z' } });
-			onEvent({
-				event: 'scan.progress',
-				data: {
-					stage: 'heuristics',
-					processed: 7,
-					total: 20,
-					message: 'Scoring conversations with baseline heuristics.'
-				}
-			});
+			onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:02:00.000Z' } });
 			onEvent({
 				event: 'scan.candidates',
 				data: {
 					batchIndex: 0,
-					candidates: [createCandidate('Progress Thread', 'thread-progress')]
+					candidates: [
+						createCandidate('First Thread', 'thread-first'),
+						createCandidate('Second Thread', 'thread-second')
+					]
 				}
 			});
 
@@ -199,14 +143,13 @@ describe('/+page.svelte', () => {
 			}
 		});
 
-		await page.getByRole('button', { name: 'Start scan' }).click();
-		await expect.element(page.getByText(/Stage:/)).toBeInTheDocument();
-		await expect.element(page.getByText(/Spotting meaningful threads/)).toBeInTheDocument();
-		await expect.element(page.getByText('1 candidate surfaced')).toBeInTheDocument();
-		await expect.element(page.getByRole('heading', { level: 3, name: 'Candidates (1)' })).toBeInTheDocument();
+		await page.getByRole('button', { name: 'Find a starting point' }).click();
+		await expect.element(page.getByRole('heading', { name: 'First Thread' })).toBeInTheDocument();
+		await expect.element(page.getByRole('heading', { name: 'Second Thread' })).toBeInTheDocument();
+		await expect.element(page.getByRole('list', { name: 'Candidate browser' })).toBeInTheDocument();
 	});
 
-	it('renders card metadata with formatted dates, participants, and preview fallback', async () => {
+	it('renders metadata fallback content on candidate cards', async () => {
 		mockStartScanStream.mockReset();
 
 		const fallbackCandidate = createCandidate('Fallback Thread', 'thread-fallback', {
@@ -217,17 +160,13 @@ describe('/+page.svelte', () => {
 		});
 
 		mockStartScanStream.mockImplementationOnce(({ onEvent }) => {
-			onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:02:00.000Z' } });
+			onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:03:00.000Z' } });
 			onEvent({
 				event: 'scan.candidates',
 				data: {
 					batchIndex: 0,
 					candidates: [fallbackCandidate]
 				}
-			});
-			onEvent({
-				event: 'scan.complete',
-				data: { completedAt: '2026-02-22T00:02:01.000Z', totalCandidates: 1 }
 			});
 
 			return { stop: vi.fn(), done: Promise.resolve() };
@@ -240,7 +179,7 @@ describe('/+page.svelte', () => {
 			}
 		});
 
-		await page.getByRole('button', { name: 'Start scan' }).click();
+		await page.getByRole('button', { name: 'Find a starting point' }).click();
 
 		const expectedDateRange = formatCandidateDateRange(
 			fallbackCandidate.metadata.firstMessageAt,
@@ -249,13 +188,38 @@ describe('/+page.svelte', () => {
 		const expectedPreview = toEmotionalPreview(fallbackCandidate.metadata.latestSnippet);
 
 		await expect.element(page.getByText(`Date range: ${expectedDateRange}`)).toBeInTheDocument();
-		await expect.element(page.getByText('Participants: Unknown participants')).toBeInTheDocument();
 		await expect.element(page.getByText(expectedPreview)).toBeInTheDocument();
-		await expect.element(page.getByRole('radiogroup', { name: 'Candidate browser' })).toBeInTheDocument();
-		await expect.element(page.getByText('Scan complete. 1 candidates received.')).toBeInTheDocument();
 	});
 
-	it('keeps generate story disabled until a candidate is selected', async () => {
+	it('removes radio selection and generate-story controls', async () => {
+		mockStartScanStream.mockReset();
+		mockStartScanStream.mockImplementationOnce(({ onEvent }) => {
+			onEvent({
+				event: 'scan.candidates',
+				data: {
+					batchIndex: 0,
+					candidates: [createCandidate('Simple Thread', 'thread-simple')]
+				}
+			});
+
+			return { stop: vi.fn(), done: Promise.resolve() };
+		});
+
+		render(Page, {
+			data: {
+				user: baseUser,
+				scanEnabled: true
+			}
+		});
+
+		await page.getByRole('button', { name: 'Find a starting point' }).click();
+		await expect
+			.element(page.getByRole('button', { name: 'Generate story' }))
+			.not.toBeInTheDocument();
+		await expect.element(page.getByRole('radio')).not.toBeInTheDocument();
+	});
+
+	it('navigates to story generation when a candidate card is clicked', async () => {
 		mockStartScanStream.mockReset();
 		mockGoto.mockReset();
 
@@ -281,74 +245,9 @@ describe('/+page.svelte', () => {
 			}
 		});
 
-		const generateStoryButton = page.getByRole('button', { name: 'Generate story' });
-		await expect.element(generateStoryButton).toBeDisabled();
+		await page.getByRole('button', { name: 'Find a starting point' }).click();
+		await page.getByRole('heading', { name: 'Selection Thread' }).click();
 
-		await page.getByRole('button', { name: 'Start scan' }).click();
-		await expect.element(generateStoryButton).toBeDisabled();
-
-		await page.getByRole('radio', { name: /Select/ }).click();
-		await expect.element(generateStoryButton).toBeEnabled();
-
-		await generateStoryButton.click();
-		const expectedHref = buildStoryHandoffHref(selectedCandidate);
-		expect(mockGoto).toHaveBeenCalledWith(expectedHref);
-	});
-
-	it('clears stale selection after re-scan removes selected thread', async () => {
-		mockStartScanStream.mockReset();
-		mockGoto.mockReset();
-
-		mockStartScanStream
-			.mockImplementationOnce(({ onEvent }) => {
-				onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:00:00.000Z' } });
-				onEvent({
-					event: 'scan.candidates',
-					data: {
-						batchIndex: 0,
-						candidates: [createCandidate('Old Thread', 'thread-old')]
-					}
-				});
-				onEvent({
-					event: 'scan.complete',
-					data: { completedAt: '2026-02-22T00:00:01.000Z', totalCandidates: 1 }
-				});
-
-				return { stop: vi.fn(), done: Promise.resolve() };
-			})
-			.mockImplementationOnce(({ onEvent }) => {
-				onEvent({ event: 'scan.started', data: { startedAt: '2026-02-22T00:01:00.000Z' } });
-				onEvent({
-					event: 'scan.candidates',
-					data: {
-						batchIndex: 0,
-						candidates: [createCandidate('Fresh Thread', 'thread-fresh')]
-					}
-				});
-				onEvent({
-					event: 'scan.complete',
-					data: { completedAt: '2026-02-22T00:01:01.000Z', totalCandidates: 1 }
-				});
-
-				return { stop: vi.fn(), done: Promise.resolve() };
-			});
-
-		render(Page, {
-			data: {
-				user: baseUser,
-				scanEnabled: true
-			}
-		});
-
-		const generateStoryButton = page.getByRole('button', { name: 'Generate story' });
-
-		await page.getByRole('button', { name: 'Start scan' }).click();
-		await page.getByRole('radio', { name: /Select/ }).click();
-		await expect.element(generateStoryButton).toBeEnabled();
-
-		await page.getByRole('button', { name: 'Re-scan' }).click();
-		await expect.element(page.getByRole('heading', { name: 'Fresh Thread' })).toBeInTheDocument();
-		await expect.element(generateStoryButton).toBeDisabled();
-		await expect.element(page.getByText('Selected for story generation')).not.toBeInTheDocument();
+		expect(mockGoto).toHaveBeenCalledWith(buildStoryHandoffHref(selectedCandidate));
 	});
 });

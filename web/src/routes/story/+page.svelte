@@ -1,4 +1,8 @@
 <script lang="ts">
+	import Button from '$lib/components/ui/Button.svelte';
+	import Card from '$lib/components/ui/Card.svelte';
+	import DotsLoader from '$lib/components/ui/DotsLoader.svelte';
+
 	type PageData = {
 		threadId: string;
 	};
@@ -132,140 +136,53 @@
 	}
 </script>
 
-<main class="story-page">
-	<section class="story-shell">
-		<header class="story-header">
-			<p class="eyebrow">Memory draft</p>
-			<h1>Your story</h1>
-		</header>
+<svelte:head>
+	<title>Your story | Memories</title>
+</svelte:head>
 
-		{#if status === 'loading'}
-			<p class="status" role="status" aria-live="polite">Writing your story...</p>
-		{:else if status === 'error'}
-			<section class="status error" role="status" aria-live="assertive">
-				<h2>We hit a snag</h2>
-				<p>{errorMessage}</p>
-				<button type="button" onclick={retry} disabled={inFlightRequestKey === data.threadId}>
-					Retry story generation
-				</button>
-			</section>
-		{:else}
-			<article class="reader" aria-live="polite">
-				{#if paragraphs.length === 0}
-					<p>{story}</p>
-				{:else}
-					{#each paragraphs as paragraph, index (`${index}-${paragraph.slice(0, 24)}`)}
-						<p>{paragraph}</p>
-					{/each}
-				{/if}
-			</article>
-		{/if}
-	</section>
+<main class="min-h-screen py-[clamp(1.25rem,3.8vw,2.75rem)]">
+	<div class="mx-auto w-full max-w-[1080px] px-5 sm:px-6">
+		<section class="mx-auto grid max-w-[70ch] gap-4">
+			<div class="flex flex-wrap items-center justify-between gap-3">
+				<div>
+					<p class="text-[0.72rem] font-bold tracking-[0.13em] text-bloom-700 uppercase">
+						Memory draft
+					</p>
+					<h1 class="text-[clamp(2rem,5vw,2.8rem)]">Your story</h1>
+				</div>
+				<Button variant="ghost" size="sm" href="/">Back to explorer</Button>
+			</div>
+
+			{#if status === 'loading'}
+				<Card className="p-[clamp(1.1rem,2.8vw,2rem)]" elevated={true}>
+					<DotsLoader label="Writing your story" className="w-full justify-center py-[0.35rem]" />
+				</Card>
+			{:else if status === 'error'}
+				<Card className="p-[clamp(1.1rem,2.8vw,2rem)]" elevated={true}>
+					<section role="status" aria-live="assertive" class="grid gap-3">
+						<h2>We hit a snag</h2>
+						<p>{errorMessage}</p>
+						<Button onclick={retry} disabled={inFlightRequestKey === data.threadId}>
+							Retry story generation
+						</Button>
+					</section>
+				</Card>
+			{:else}
+				<Card
+					className="p-[clamp(1.1rem,2.8vw,2rem)] font-serif text-[clamp(1.08rem,1.7vw,1.22rem)] leading-[1.88] tracking-[0.01em]"
+					elevated={true}
+				>
+					<article aria-live="polite">
+						{#if paragraphs.length === 0}
+							<p>{story}</p>
+						{:else}
+							{#each paragraphs as paragraph, index (`${index}-${paragraph.slice(0, 24)}`)}
+								<p>{paragraph}</p>
+							{/each}
+						{/if}
+					</article>
+				</Card>
+			{/if}
+		</section>
+	</div>
 </main>
-
-<style>
-	.story-page {
-		min-height: 100vh;
-		padding: clamp(1.25rem, 3.5vw, 3rem);
-		background: linear-gradient(180deg, #f4efe7 0%, #f9f7f2 35%, #fffefb 100%);
-	}
-
-	.story-shell {
-		max-width: 68ch;
-		margin: 0 auto;
-		display: grid;
-		gap: 1.5rem;
-		color: #221d16;
-	}
-
-	.story-header {
-		display: grid;
-		gap: 0.5rem;
-	}
-
-	.eyebrow {
-		margin: 0;
-		font: 600 0.75rem/1.1 'Avenir Next', 'Helvetica Neue', sans-serif;
-		text-transform: uppercase;
-		letter-spacing: 0.12em;
-		color: #5f4c37;
-	}
-
-	h1 {
-		margin: 0;
-		font: 500 clamp(2rem, 5vw, 2.8rem) / 1.1 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
-	}
-
-	.status,
-	.reader {
-		margin: 0;
-		padding: clamp(1.25rem, 3vw, 2rem);
-		background: rgb(255 255 255 / 75%);
-		border: 1px solid rgb(82 65 43 / 12%);
-		box-shadow: 0 10px 28px rgb(35 28 20 / 10%);
-		border-radius: 1rem;
-	}
-
-	.status {
-		font: 500 1.05rem/1.6 'Avenir Next', 'Helvetica Neue', sans-serif;
-	}
-
-	.error {
-		display: grid;
-		gap: 0.9rem;
-	}
-
-	.error h2 {
-		margin: 0;
-		font: 600 1.25rem/1.2 'Avenir Next', 'Helvetica Neue', sans-serif;
-	}
-
-	.error p {
-		margin: 0;
-	}
-
-	button {
-		justify-self: start;
-		padding: 0.7rem 1.1rem;
-		font: 600 0.95rem/1 'Avenir Next', 'Helvetica Neue', sans-serif;
-		color: #fff;
-		background: #513620;
-		border: 0;
-		border-radius: 999px;
-		cursor: pointer;
-	}
-
-	button:disabled {
-		opacity: 0.65;
-		cursor: wait;
-	}
-
-	.reader {
-		font: 400 1.17rem/1.88 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
-		letter-spacing: 0.01em;
-	}
-
-	.reader p {
-		margin: 0;
-	}
-
-	.reader p + p {
-		margin-top: 1.25rem;
-	}
-
-	@media (max-width: 640px) {
-		.story-page {
-			padding: 1rem;
-		}
-
-		.status,
-		.reader {
-			padding: 1rem;
-		}
-
-		.reader {
-			font-size: 1.06rem;
-			line-height: 1.8;
-		}
-	}
-</style>

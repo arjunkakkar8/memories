@@ -1,0 +1,69 @@
+@theme {
+	--font-sans:
+		'Avenir Next', 'Avenir', 'Nunito Sans', 'Segoe UI', 'Helvetica Neue', 'Helvetica', sans-serif;
+	--font-serif: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', 'Baskerville', serif;
+
+	--color-paper-50: #fffdf7;
+	--color-paper-100: #f8f1e8;
+	--color-paper-200: #f1e3d1;
+	--color-white: #ffffff;
+	--color-clay-300: #d9b993;
+	--color-clay-500: #b68452;
+	--color-clay-700: #8c5b2d;
+	--color-ink-700: #3f3123;
+	--color-ink-900: #24180f;
+	--color-bloom-500: #8f5f45;
+	--color-bloom-700: #6f452f;
+	--color-ink-muted: rgb(63 49 35 / 0.82);
+	--color-ink-fineprint: rgb(63 49 35 / 0.76);
+	--color-ink-body: rgb(63 49 35 / 0.9);
+	--color-bloom-soft: rgb(111 69 47 / 0.62);
+	--color-ink-border-soft: rgb(63 49 35 / 0.15);
+	--color-ink-border-elevated: rgb(63 49 35 / 0.16);
+	--color-ink-border-ghost: rgb(63 49 35 / 0.18);
+	--color-ink-border-secondary: rgb(63 49 35 / 0.24);
+	--color-bloom-border-strong: rgb(111 69 47 / 0.55);
+	--color-paper-surface: rgb(255 255 255 / 0.82);
+	--color-paper-surface-top: rgb(255 255 255 / 0.88);
+	--color-paper-surface-bottom: rgb(255 251 244 / 0.88);
+	--color-paper-secondary: rgb(255 251 244 / 0.92);
+	--shadow-button-primary: 0 8px 20px rgb(77 48 28 / 0.25);
+
+	--shadow-card: 0 14px 36px rgb(47 34 23 / 0.12);
+	--shadow-soft: 0 8px 24px rgb(42 30 20 / 0.08);
+}
+
+@layer base {
+	:root {
+		color-scheme: light;
+	}
+
+	body {
+		margin: 0;
+		font-family: var(--font-sans);
+		color: var(--color-ink-900);
+		background:
+			radial-gradient(circle at 8% -12%, rgb(182 132 82 / 0.2), transparent 52%),
+			radial-gradient(circle at 92% -8%, rgb(143 95 69 / 0.16), transparent 48%),
+			linear-gradient(
+				180deg,
+				var(--color-paper-100) 0%,
+				var(--color-paper-50) 42%,
+				var(--color-white) 100%
+			);
+	}
+
+	h1,
+	h2,
+	h3,
+	h4 {
+		margin: 0;
+		font-family: var(--font-serif);
+		line-height: 1.15;
+		letter-spacing: 0.01em;
+	}
+
+	p {
+		line-height: 1.6;
+	}
+}
