@@ -54,7 +54,12 @@ function seedSession(cookies: CookieJar): string {
 	};
 
 	const createdSession = createSession(session);
-	setSessionTokenCookie(cookies as never, createdSession.token, false, createdSession.session.expiresAt);
+	setSessionTokenCookie(
+		cookies as never,
+		createdSession.token,
+		false,
+		createdSession.session.expiresAt
+	);
 	const persisted = validateSessionToken(cookies.get(SESSION_COOKIE));
 	if (!persisted?.session) {
 		throw new Error('Expected test session to persist');
@@ -75,8 +80,8 @@ describe('Google OAuth disconnect route', () => {
 
 		const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
 			async () => {
-			cookies.events.push('revoke');
-			return new Response('{}', { status: 200 });
+				cookies.events.push('revoke');
+				return new Response('{}', { status: 200 });
 			}
 		);
 

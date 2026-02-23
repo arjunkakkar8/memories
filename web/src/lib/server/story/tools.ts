@@ -40,7 +40,8 @@ export function createStoryToolRuntime(context: StoryToolContext) {
 
 	const tools = {
 		getSelectedThread: tool({
-			description: 'Fetch the full selected Gmail thread including message excerpts and participants.',
+			description:
+				'Fetch the full selected Gmail thread including message excerpts and participants.',
 			inputSchema: z.object({
 				threadId: z.string().min(1)
 			}),

@@ -63,7 +63,9 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 				})
 			);
 			clearOAuthCookies();
-			return new Response('Missing required Gmail readonly scope. Please reconnect Google.', { status: 403 });
+			return new Response('Missing required Gmail readonly scope. Please reconnect Google.', {
+				status: 403
+			});
 		}
 
 		const session = buildSessionFromTokens(tokens);
@@ -74,7 +76,12 @@ export const GET: RequestHandler = async ({ url, cookies }) => {
 			rememberRefreshToken(createdSession.session.id, tokens.refresh_token);
 		}
 		rememberAccessToken(createdSession.session.id, tokens.access_token, grantedScopes);
-		setSessionTokenCookie(cookies, createdSession.token, isSecure, createdSession.session.expiresAt);
+		setSessionTokenCookie(
+			cookies,
+			createdSession.token,
+			isSecure,
+			createdSession.session.expiresAt
+		);
 		clearOAuthCookies();
 
 		return new Response(null, {

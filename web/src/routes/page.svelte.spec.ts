@@ -1,10 +1,7 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import {
-	formatCandidateDateRange,
-	toEmotionalPreview
-} from '$lib/ui/candidate-browser/candidate-preview';
+import { formatCandidateDateRange } from '$lib/ui/candidate-browser/candidate-preview';
 import { buildStoryHandoffHref } from '$lib/ui/candidate-browser/story-handoff';
 import Page from './+page.svelte';
 
@@ -39,6 +36,7 @@ type CandidateMetadataOverride = {
 	firstMessageAt?: string | null;
 	lastMessageAt?: string | null;
 	latestSnippet?: string | null;
+	displayTitle?: string | null;
 	rank?: number;
 };
 
@@ -59,6 +57,7 @@ function createCandidate(
 
 	return {
 		threadId,
+		displayTitle: overrides.displayTitle ?? null,
 		combinedScore: 0.91,
 		rank: typeof overrides.rank === 'number' ? overrides.rank : 1,
 		metadata
@@ -149,10 +148,11 @@ describe('/+page.svelte', () => {
 		await expect.element(page.getByRole('list', { name: 'Candidate browser' })).toBeInTheDocument();
 	});
 
-	it('renders metadata fallback content on candidate cards', async () => {
+	it('renders LLM title and date range on candidate cards', async () => {
 		mockStartScanStream.mockReset();
 
 		const fallbackCandidate = createCandidate('Fallback Thread', 'thread-fallback', {
+			displayTitle: 'Weekend Plans with Sam and Priya',
 			participants: [],
 			firstMessageAt: '2025-03-05T00:00:00.000Z',
 			lastMessageAt: '2025-03-06T00:00:00.000Z',
@@ -185,10 +185,14 @@ describe('/+page.svelte', () => {
 			fallbackCandidate.metadata.firstMessageAt,
 			fallbackCandidate.metadata.lastMessageAt
 		);
-		const expectedPreview = toEmotionalPreview(fallbackCandidate.metadata.latestSnippet);
 
+		await expect
+			.element(page.getByRole('heading', { name: 'Weekend Plans with Sam and Priya' }))
+			.toBeInTheDocument();
 		await expect.element(page.getByText(`Date range: ${expectedDateRange}`)).toBeInTheDocument();
-		await expect.element(page.getByText(expectedPreview)).toBeInTheDocument();
+		await expect
+			.element(page.getByText('A meaningful moment is waiting in this thread.'))
+			.not.toBeInTheDocument();
 	});
 
 	it('removes radio selection and generate-story controls', async () => {

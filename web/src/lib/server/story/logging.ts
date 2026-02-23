@@ -117,7 +117,12 @@ export function describeStoryError(error: unknown): StoryErrorDetails {
 	};
 }
 
-function emit(level: StoryLogLevel, context: StoryLoggerContext, event: string, details: StoryLogDetails): void {
+function emit(
+	level: StoryLogLevel,
+	context: StoryLoggerContext,
+	event: string,
+	details: StoryLogDetails
+): void {
 	const payload = {
 		ts: new Date().toISOString(),
 		level,
@@ -203,11 +208,13 @@ export const NOOP_STORY_LOGGER: StoryLogger = {
 	}
 };
 
-export function createStoryRequestLogger(context: {
-	sessionId?: string | null;
-	threadId?: string | null;
-	model?: string | null;
-} = {}): StoryLogger {
+export function createStoryRequestLogger(
+	context: {
+		sessionId?: string | null;
+		threadId?: string | null;
+		model?: string | null;
+	} = {}
+): StoryLogger {
 	return createLogger({
 		requestId: randomUUID(),
 		sessionRef: toSessionRef(context.sessionId),

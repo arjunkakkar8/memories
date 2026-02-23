@@ -11,10 +11,16 @@ export const handle: Handle = async ({ event, resolve }) => {
 	const sessionValidation = validateSessionToken(sessionToken);
 	const pathname = event.url.pathname;
 	const isAuthRoute = pathname.startsWith('/auth');
-	const isPublicRoute = pathname === '/privacy' || pathname.startsWith('/api') || pathname.startsWith('/_app');
+	const isPublicRoute =
+		pathname === '/privacy' || pathname.startsWith('/api') || pathname.startsWith('/_app');
 
 	if (sessionToken && sessionValidation?.session) {
-		setSessionTokenCookie(event.cookies, sessionToken, import.meta.env.PROD, sessionValidation.session.expiresAt);
+		setSessionTokenCookie(
+			event.cookies,
+			sessionToken,
+			import.meta.env.PROD,
+			sessionValidation.session.expiresAt
+		);
 	} else if (sessionToken) {
 		deleteSessionTokenCookie(event.cookies, import.meta.env.PROD);
 	}

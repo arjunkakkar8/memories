@@ -71,7 +71,8 @@ describe('fetchGmailThreadMetadata', () => {
 		expect(metadata[0]).toMatchObject({
 			subject: 'Subject thread-1',
 			messageCount: 2,
-			participants: ['alex@example.com', 'jamie@example.com']
+			participantsNormalized: ['alex@example.com', 'jamie@example.com'],
+			senderDomains: ['example.com']
 		});
 	});
 
@@ -144,21 +145,55 @@ describe('filterCandidates', () => {
 				threadId: 'weak-thread',
 				historyId: null,
 				subject: 'One message ping',
+				subjectLexical: 'one message ping',
+				snippetLexical: '',
 				participants: ['solo@example.com'],
+				participantsNormalized: ['solo@example.com'],
+				senderAddresses: ['solo@example.com'],
+				senderDomains: ['example.com'],
+				labelIds: [],
+				importanceMarkers: {
+					important: false,
+					starred: false,
+					hasUserLabels: false
+				},
 				messageCount: 1,
 				firstMessageAt: '2023-01-01T00:00:00Z',
 				lastMessageAt: '2023-01-01T00:00:00Z',
-				latestSnippet: null
+				latestSnippet: null,
+				retrieval: {
+					hitCount: 1,
+					packIds: ['inbox-focus'],
+					windowIds: ['window-1'],
+					hits: []
+				}
 			},
 			{
 				threadId: 'strong-thread',
 				historyId: null,
 				subject: 'Big life update',
+				subjectLexical: 'big life update',
+				snippetLexical: 'thank you for being there',
 				participants: ['alex@example.com', 'jamie@example.com', 'mom@example.com'],
+				participantsNormalized: ['alex@example.com', 'jamie@example.com', 'mom@example.com'],
+				senderAddresses: ['alex@example.com'],
+				senderDomains: ['example.com'],
+				labelIds: ['IMPORTANT'],
+				importanceMarkers: {
+					important: true,
+					starred: false,
+					hasUserLabels: false
+				},
 				messageCount: 14,
 				firstMessageAt: '2025-10-01T00:00:00Z',
 				lastMessageAt: '2025-12-25T00:00:00Z',
-				latestSnippet: 'Thank you for being there'
+				latestSnippet: 'Thank you for being there',
+				retrieval: {
+					hitCount: 3,
+					packIds: ['inbox-focus', 'starred-important'],
+					windowIds: ['window-1', 'window-2'],
+					hits: []
+				}
 			}
 		];
 
@@ -170,6 +205,10 @@ describe('filterCandidates', () => {
 
 		expect(result.kept).toHaveLength(1);
 		expect(result.kept[0]?.metadata.threadId).toBe('strong-thread');
+		expect(result.kept[0]?.signals.provenanceStrength).toBeGreaterThan(0);
+		expect(result.kept[0]?.signals.actionabilityLexical).toBeGreaterThan(0);
+		expect(result.kept[0]?.signals.historicalPersistence).toBeGreaterThan(0);
+		expect('recency' in (result.kept[0]?.signals ?? {})).toBe(false);
 		expect(result.dropped).toHaveLength(1);
 		expect(result.dropped[0]?.metadata.threadId).toBe('weak-thread');
 	});

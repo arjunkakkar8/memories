@@ -43,28 +43,57 @@ function parseSseEvents(body: string): ParsedSseEvent[] {
 function candidate(threadId: string): RankedScanCandidate {
 	return {
 		threadId,
+		displayTitle: 'Project kickoff with design partners',
 		metadata: {
 			threadId,
 			historyId: null,
 			subject: 'Subject',
 			participants: ['person@example.com'],
+			participantsNormalized: ['person@example.com'],
+			senderAddresses: ['person@example.com'],
+			senderDomains: ['example.com'],
+			labelIds: ['IMPORTANT'],
+			importanceMarkers: {
+				important: true,
+				starred: false,
+				hasUserLabels: false
+			},
+			subjectLexical: 'subject',
+			snippetLexical: 'latest update',
 			messageCount: 3,
 			firstMessageAt: '2026-01-01T00:00:00.000Z',
 			lastMessageAt: '2026-02-01T00:00:00.000Z',
-			latestSnippet: 'Latest update'
+			latestSnippet: 'Latest update',
+			retrieval: {
+				hitCount: 2,
+				packIds: ['inbox-focus'],
+				windowIds: ['window-1'],
+				hits: []
+			}
 		},
 		signals: {
 			messageDepth: 0.7,
 			participantDiversity: 0.3,
-			recency: 0.8,
 			continuity: 0.9,
+			provenanceStrength: 0.5,
+			actionabilityLexical: 0.6,
+			resurfacing: 0.4,
+			historicalPersistence: 0.6,
+			novelty: 0.5,
+			importanceMarkers: 0.5,
+			bulkNoisePenalty: 0.1,
+			receiptAutoMailPenalty: 0,
+			redundancyPenalty: 0,
+			singleShotPenalty: 0.1,
+			nonNoiseStrength: 0.76,
 			total: 0.68
 		},
 		llm: {
 			threadId,
 			score: 0.9,
 			rationale: 'Strong narrative arc',
-			themes: ['change']
+			themes: ['change'],
+			title: 'Project kickoff with design partners'
 		},
 		combinedScore: 0.81,
 		rank: 1

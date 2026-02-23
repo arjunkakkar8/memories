@@ -66,7 +66,10 @@ function mapError(error: unknown): { status: number; code: string } {
 		return { status: 429, code: 'story_generation_failed' };
 	}
 
-	if (error.message === 'story_research_missing_selected_thread' || error.message === 'story_generation_empty') {
+	if (
+		error.message === 'story_research_missing_selected_thread' ||
+		error.message === 'story_generation_empty'
+	) {
 		return { status: 502, code: 'story_generation_failed' };
 	}
 
@@ -154,10 +157,14 @@ export const POST: RequestHandler = async ({ request, locals, fetch }) => {
 	try {
 		const result = await runPipeline(accessToken, 'initial');
 
-		return json({
-			story: result.story,
-			metadata: result.metadata
-		}, 200, requestLogger.requestId);
+		return json(
+			{
+				story: result.story,
+				metadata: result.metadata
+			},
+			200,
+			requestLogger.requestId
+		);
 	} catch (error) {
 		if (!isGmailAuthExpiredError(error)) {
 			const { status, code } = mapError(error);
@@ -193,10 +200,14 @@ export const POST: RequestHandler = async ({ request, locals, fetch }) => {
 			});
 
 			const result = await runPipeline(refreshed.accessToken, 'after_refresh');
-			return json({
-				story: result.story,
-				metadata: result.metadata
-			}, 200, requestLogger.requestId);
+			return json(
+				{
+					story: result.story,
+					metadata: result.metadata
+				},
+				200,
+				requestLogger.requestId
+			);
 		} catch (retryOrRefreshError) {
 			if (isGmailAuthExpiredError(retryOrRefreshError)) {
 				requestLogger.warn('story.request.refresh_attempt.failed_reauth_required', {

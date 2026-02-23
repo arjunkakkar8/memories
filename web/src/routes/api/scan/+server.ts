@@ -1,6 +1,7 @@
 import { runScanPipeline } from '$lib/server/scan/pipeline';
-import { QuotaBudgetError } from '$lib/server/scan/quota-budget';
+import { QuotaBudgetError, createQuotaBudget } from '$lib/server/scan/quota-budget';
 import { getAccessToken } from '$lib/server/auth/revocable-token-store';
+import { OPENROUTER_API_KEY, OPENROUTER_MODEL } from '$env/static/private';
 import { toSseEvent, type ScanSseEvent } from './events';
 import { createScanStreamState } from './stream-state';
 import type { RequestHandler } from './$types';
@@ -13,6 +14,8 @@ type ScanRequestBody = {
 	maxPages?: number;
 	maxThreads?: number;
 	llmBatchSize?: number;
+	maxGmailUnits?: number;
+	maxConcurrentGmail?: number;
 };
 
 function toErrorPayload(error: unknown): Extract<ScanSseEvent, { event: 'scan.error' }>['data'] {
@@ -117,6 +120,10 @@ export const POST: RequestHandler = async ({ locals, request, fetch }) => {
 
 			void runScanPipeline({
 				accessToken,
+				budget: createQuotaBudget({
+					maxGmailUnits: body.maxGmailUnits,
+					maxConcurrentGmail: body.maxConcurrentGmail
+				}),
 				query: body.query,
 				pageSize: body.pageSize,
 				maxPages: body.maxPages,
@@ -124,6 +131,8 @@ export const POST: RequestHandler = async ({ locals, request, fetch }) => {
 				llmBatchSize: body.llmBatchSize,
 				fetchImpl: fetch,
 				openRouterFetchImpl: fetch,
+				openRouterApiKey: OPENROUTER_API_KEY,
+				openRouterModel: OPENROUTER_MODEL,
 				onProgress: (progress) => {
 					enqueue({
 						event: 'scan.progress',

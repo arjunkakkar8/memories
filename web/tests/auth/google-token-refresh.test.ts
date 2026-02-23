@@ -136,7 +136,8 @@ describe('google token refresh primitives', () => {
 			accessToken: () => 'google-access-token',
 			hasRefreshToken: () => true,
 			refreshToken: () => 'google-refresh-token',
-			idToken: () => encodeFakeIdToken({ sub: 'google-subject-1', email: 'person@example.com', name: 'Alex' }),
+			idToken: () =>
+				encodeFakeIdToken({ sub: 'google-subject-1', email: 'person@example.com', name: 'Alex' }),
 			hasScopes: () => true,
 			scopes: () => ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/gmail.readonly']
 		} as Awaited<ReturnType<typeof google.validateAuthorizationCode>>);

@@ -65,7 +65,10 @@ function parseEventChunk(chunk: string): ScanClientEvent | null {
 	}
 }
 
-async function consumeSse(response: Response, onEvent: (event: ScanClientEvent) => void): Promise<void> {
+async function consumeSse(
+	response: Response,
+	onEvent: (event: ScanClientEvent) => void
+): Promise<void> {
 	if (!response.body) {
 		throw new Error('scan_stream_unavailable');
 	}

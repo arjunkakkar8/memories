@@ -1,7 +1,4 @@
-import {
-	buildAuthorizationURL,
-	getMissingGoogleOAuthConfigKeys,
-} from '$lib/server/auth/oauth';
+import { buildAuthorizationURL, getMissingGoogleOAuthConfigKeys } from '$lib/server/auth/oauth';
 import { setOAuthCodeVerifier, setOAuthState } from '$lib/server/auth/session';
 import type { RequestHandler } from './$types';
 

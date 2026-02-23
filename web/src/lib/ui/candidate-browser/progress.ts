@@ -32,9 +32,7 @@ export function toProgressView(
 	return {
 		stageLabel,
 		statusCopy:
-			statusMessage.length > 0
-				? statusMessage
-				: `${stageLabel} (${boundedProcessed}/${safeTotal})`,
+			statusMessage.length > 0 ? statusMessage : `${stageLabel} (${boundedProcessed}/${safeTotal})`,
 		candidateCopy: `${candidateCount} ${candidateCount === 1 ? 'candidate' : 'candidates'} surfaced`,
 		processed: boundedProcessed,
 		total: safeTotal

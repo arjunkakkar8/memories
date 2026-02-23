@@ -5,10 +5,7 @@
 	import { createCandidateStore, type ScanStoreState } from '$lib/scan/candidate-store';
 	import { startScanStream, type ScanStreamHandle } from '$lib/scan/client-stream';
 	import { buildStoryHandoffHref } from '$lib/ui/candidate-browser/story-handoff';
-	import {
-		formatCandidateDateRange,
-		toEmotionalPreview
-	} from '$lib/ui/candidate-browser/candidate-preview';
+	import { formatCandidateDateRange } from '$lib/ui/candidate-browser/candidate-preview';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import DotsLoader from '$lib/components/ui/DotsLoader.svelte';
@@ -34,7 +31,7 @@
 	let activeStream: ScanStreamHandle | null = null;
 	let isHeroTransitioning = $state(false);
 	let heroTransitionTimer: ReturnType<typeof setTimeout> | null = null;
-  let heroHeight = $state(0);
+	let heroHeight = $state(0);
 
 	const unsubscribe = candidateStore.subscribe((value) => {
 		scanState = value;
@@ -121,34 +118,33 @@
 </svelte:head>
 
 <main class="min-h-screen py-[clamp(1.25rem,3.8vw,2.75rem)]">
-    <div class="mx-auto w-full max-w-270 px-5 sm:px-6">
-
-	<div
-		class={`transition-[height] duration-500 ease-out flex flex-col justify-center ${shouldCenterContent ? 'h-[calc(100vh-5.5rem)]': 'h-(--hero-height)'}`}
-    style:--hero-height="{heroHeight}px"
-	>
-		<section
-			class="mb-4 grid justify-items-center gap-6 px-[clamp(0.35rem,2.1vw,1.25rem)] py-[clamp(1.45rem,4.4vw,3.1rem)] text-center"
-			aria-label="Memories landing hero"
-      bind:clientHeight={heroHeight}
+	<div class="mx-auto w-full max-w-270 px-5 sm:px-6">
+		<div
+			class={`flex flex-col justify-center transition-[height] duration-500 ease-out ${shouldCenterContent ? 'h-[calc(100vh-5.5rem)]' : 'h-(--hero-height)'}`}
+			style:--hero-height="{heroHeight}px"
 		>
-			<h1 class="max-w-[20ch] text-[clamp(2.3rem,6.3vw,4.3rem)] text-balance">
-				Turn your emails <br /> into readable <i>memories</i>.
-			</h1>
-			<p class="max-w-[68ch] text-[clamp(1.02rem,2.4vw,1.2rem)] text-ink-muted">
-				Email access is readonly, never persisted, and adheres to zero data retention.
-			</p>
-			<div class="grid justify-items-center gap-2">
-				{#if data.user}
-					<Button onclick={startScan} disabled={isExploreDisabled}>
-						{hasRun && !isRunning ? 'Find More Seeds' : 'Find a starting point'}
-					</Button>
-				{:else}
-					<Button href="/auth/google">Login to Gmail</Button>
-				{/if}
-			</div>
-		</section>
-      </div>
+			<section
+				class="mb-4 grid justify-items-center gap-6 px-[clamp(0.35rem,2.1vw,1.25rem)] py-[clamp(1.45rem,4.4vw,3.1rem)] text-center"
+				aria-label="Memories landing hero"
+				bind:clientHeight={heroHeight}
+			>
+				<h1 class="max-w-[20ch] text-[clamp(2.3rem,6.3vw,4.3rem)] text-balance">
+					Turn your emails <br /> into readable <i>memories</i>.
+				</h1>
+				<p class="max-w-[68ch] text-[clamp(1.02rem,2.4vw,1.2rem)] text-ink-muted">
+					Email access is readonly, never persisted, and adheres to zero data retention.
+				</p>
+				<div class="grid justify-items-center gap-2">
+					{#if data.user}
+						<Button onclick={startScan} disabled={isExploreDisabled}>
+							{hasRun && !isRunning ? 'Find More Seeds' : 'Find a starting point'}
+						</Button>
+					{:else}
+						<Button href="/auth/google">Login to Gmail</Button>
+					{/if}
+				</div>
+			</section>
+		</div>
 
 		{#if data.user}
 			<section
@@ -157,7 +153,14 @@
 			>
 				{#if isRunning}
 					<div class="flex w-full justify-center">
-						<DotsLoader label="Scan in progress" />
+						<DotsLoader
+							textSnippets={[
+								'Scanning your emails',
+								'Finding good candidates',
+								'Still looking',
+								'Ranking candidates'
+							]}
+						/>
 					</div>
 				{/if}
 
@@ -184,16 +187,13 @@
 										onclick={(event) => openCandidateStory(candidateHref, event)}
 									>
 										<h2 class="text-[1.08rem]">
-											{candidate.metadata.subject ?? 'Untitled thread'}
+											{candidate.displayTitle ?? candidate.metadata.subject ?? 'Untitled thread'}
 										</h2>
 										<p class="text-[0.9rem] text-ink-body">
 											Date range: {formatCandidateDateRange(
 												candidate.metadata.firstMessageAt,
 												candidate.metadata.lastMessageAt
 											)}
-										</p>
-										<p class="text-[0.9rem] text-ink-body">
-											{toEmotionalPreview(candidate.metadata.latestSnippet)}
 										</p>
 									</a>
 								</Card>

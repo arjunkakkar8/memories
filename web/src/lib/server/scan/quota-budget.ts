@@ -1,5 +1,5 @@
-const DEFAULT_GMAIL_UNITS = 600;
-const DEFAULT_MAX_CONCURRENT_GMAIL = 4;
+const DEFAULT_GMAIL_UNITS = 5000;
+const DEFAULT_MAX_CONCURRENT_GMAIL = 8;
 const DEFAULT_MAX_CONCURRENT_LLM = 2;
 
 export class QuotaBudgetError extends Error {
@@ -75,7 +75,10 @@ export function createQuotaBudget(options: BudgetOptions = {}) {
 		}
 
 		if (activeLlmRequests >= maxConcurrentLlm) {
-			throw new QuotaBudgetError('concurrency_exceeded', `LLM concurrency limit reached (${maxConcurrentLlm})`);
+			throw new QuotaBudgetError(
+				'concurrency_exceeded',
+				`LLM concurrency limit reached (${maxConcurrentLlm})`
+			);
 		}
 
 		activeLlmRequests += 1;
@@ -90,7 +93,10 @@ export function createQuotaBudget(options: BudgetOptions = {}) {
 		activeLlmRequests = Math.max(0, activeLlmRequests - 1);
 	}
 
-	async function withConcurrencySlot<T>(kind: 'gmail' | 'llm', operation: () => Promise<T>): Promise<T> {
+	async function withConcurrencySlot<T>(
+		kind: 'gmail' | 'llm',
+		operation: () => Promise<T>
+	): Promise<T> {
 		enter(kind);
 		try {
 			return await operation();

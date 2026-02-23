@@ -3,7 +3,11 @@ import { AUTH_SCOPES, GMAIL_READONLY_SCOPE } from '../../src/lib/server/auth/sco
 import { buildAuthorizationURL, google } from '../../src/lib/server/auth/oauth';
 import { GET as startGoogleAuth } from '../../src/routes/auth/google/+server';
 import { GET as oauthCallback } from '../../src/routes/auth/google/callback/+server';
-import { OAUTH_CODE_VERIFIER_COOKIE, OAUTH_STATE_COOKIE, SESSION_COOKIE } from '../../src/lib/server/auth/session';
+import {
+	OAUTH_CODE_VERIFIER_COOKIE,
+	OAUTH_STATE_COOKIE,
+	SESSION_COOKIE
+} from '../../src/lib/server/auth/session';
 import { handle } from '../../src/hooks.server';
 
 const mockPrivateEnv = vi.hoisted(() => ({
@@ -68,7 +72,9 @@ describe('Arctic OAuth authorization URL builder', () => {
 	});
 
 	it('builds URL with readonly Gmail scope', () => {
-		const { url, codeVerifier, state } = buildAuthorizationURL(new URL('http://localhost:5173/auth/google'));
+		const { url, codeVerifier, state } = buildAuthorizationURL(
+			new URL('http://localhost:5173/auth/google')
+		);
 
 		expect(state.length).toBeGreaterThan(20);
 		expect(codeVerifier.length).toBeGreaterThan(20);
@@ -126,7 +132,7 @@ describe('Google OAuth auth start route', () => {
 		const redirect = new URL(location ?? '');
 		expect(redirect.searchParams.has('include_granted_scopes')).toBe(false);
 		expect(redirect.searchParams.get('state')).toBeTruthy();
-        expect(redirect.searchParams.get('code_challenge_method')).toBe('S256');
+		expect(redirect.searchParams.get('code_challenge_method')).toBe('S256');
 
 		const scopes = (redirect.searchParams.get('scope') ?? '').split(' ');
 		expect(scopes).toContain(GMAIL_READONLY_SCOPE);
@@ -218,7 +224,9 @@ describe('Google OAuth callback', () => {
 		expect(sessionSetCall?.value.length).toBeGreaterThan(20);
 		expect(sessionSetCall?.value).not.toContain('access-token');
 		expect(sessionSetCall?.value).not.toContain('refresh-token');
-		expect(() => JSON.parse(Buffer.from(sessionSetCall?.value ?? '', 'base64url').toString('utf8'))).toThrow();
+		expect(() =>
+			JSON.parse(Buffer.from(sessionSetCall?.value ?? '', 'base64url').toString('utf8'))
+		).toThrow();
 
 		const localsEvent = {
 			cookies,

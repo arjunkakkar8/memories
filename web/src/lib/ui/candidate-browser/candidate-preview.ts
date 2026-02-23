@@ -5,9 +5,6 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
 	timeZone: 'UTC'
 });
 
-const PREVIEW_FALLBACK = 'A meaningful moment is waiting in this thread.';
-const PREVIEW_MAX_LENGTH = 110;
-
 function parseDate(value: string | null): Date | null {
 	if (!value) {
 		return null;
@@ -15,18 +12,6 @@ function parseDate(value: string | null): Date | null {
 
 	const parsed = new Date(value);
 	return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function collapseWhitespace(value: string): string {
-	return value.replace(/\s+/g, ' ').trim();
-}
-
-function truncateLine(value: string): string {
-	if (value.length <= PREVIEW_MAX_LENGTH) {
-		return value;
-	}
-
-	return `${value.slice(0, PREVIEW_MAX_LENGTH - 3).trimEnd()}...`;
 }
 
 export function formatCandidateDateRange(
@@ -54,17 +39,4 @@ export function formatCandidateDateRange(
 	}
 
 	return 'Date unavailable';
-}
-
-export function toEmotionalPreview(latestSnippet: string | null): string {
-	if (!latestSnippet) {
-		return PREVIEW_FALLBACK;
-	}
-
-	const normalized = collapseWhitespace(latestSnippet);
-	if (normalized.length === 0) {
-		return PREVIEW_FALLBACK;
-	}
-
-	return truncateLine(normalized);
 }

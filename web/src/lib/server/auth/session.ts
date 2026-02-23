@@ -64,7 +64,11 @@ export function clearOAuthState(cookies: CookieWriter, isSecure: boolean): void 
 	cookies.delete(OAUTH_STATE_COOKIE, baseCookieOptions(isSecure));
 }
 
-export function setOAuthCodeVerifier(cookies: CookieWriter, codeVerifier: string, isSecure: boolean): void {
+export function setOAuthCodeVerifier(
+	cookies: CookieWriter,
+	codeVerifier: string,
+	isSecure: boolean
+): void {
 	cookies.set(OAUTH_CODE_VERIFIER_COOKIE, codeVerifier, {
 		...baseCookieOptions(isSecure),
 		maxAge: 10 * 60

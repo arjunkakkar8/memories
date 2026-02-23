@@ -83,7 +83,10 @@ type GmailErrorPayload = {
 	providerMessage: string | null;
 };
 
-function isMetadataScopeFullFormatError(reason: string | null, providerMessage: string | null): boolean {
+function isMetadataScopeFullFormatError(
+	reason: string | null,
+	providerMessage: string | null
+): boolean {
 	if (reason !== 'forbidden') {
 		return false;
 	}
@@ -196,7 +199,9 @@ async function fetchWithRetry<T>(
 				willRetry: false
 			});
 			const reasonSuffix = normalizedReason ? `:${normalizedReason}` : '';
-			throw new Error(`gmail_request_failed:${response.status}:${options.operation}${reasonSuffix}`);
+			throw new Error(
+				`gmail_request_failed:${response.status}:${options.operation}${reasonSuffix}`
+			);
 		}
 
 		const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
@@ -248,7 +253,10 @@ function addressToEmail(entry: string): string {
 }
 
 function decodeBase64Url(value: string): string {
-	const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
+	const padded = value
+		.replace(/-/g, '+')
+		.replace(/_/g, '/')
+		.padEnd(Math.ceil(value.length / 4) * 4, '=');
 	return Buffer.from(padded, 'base64').toString('utf-8');
 }
 
@@ -285,7 +293,7 @@ function messageToExcerpt(message: GmailMessage): StoryMessageExcerpt {
 		to: parseAddressList(getHeaderValue(headers, 'To')),
 		cc: parseAddressList(getHeaderValue(headers, 'Cc')),
 		subject: getHeaderValue(headers, 'Subject'),
-		excerpt: trimmedBody ? trimmedBody.slice(0, 1_200) : message.snippet ?? null
+		excerpt: trimmedBody ? trimmedBody.slice(0, 1_200) : (message.snippet ?? null)
 	};
 }
 
@@ -316,7 +324,9 @@ function toThreadResearch(thread: GmailThreadResponse, threadId: string): StoryT
 		participants: [...participants],
 		messageCount: messages.length,
 		firstMessageAt: timestamps.length ? new Date(timestamps[0]).toISOString() : null,
-		lastMessageAt: timestamps.length ? new Date(timestamps[timestamps.length - 1]).toISOString() : null,
+		lastMessageAt: timestamps.length
+			? new Date(timestamps[timestamps.length - 1]).toISOString()
+			: null,
 		latestSnippet: thread.snippet ?? null,
 		messages: messages.map(messageToExcerpt)
 	};
@@ -376,7 +386,9 @@ export async function fetchSelectedThread(
 	});
 }
 
-export async function searchRelatedThreads(options: RelatedSearchOptions): Promise<StoryThreadResearch[]> {
+export async function searchRelatedThreads(
+	options: RelatedSearchOptions
+): Promise<StoryThreadResearch[]> {
 	const {
 		accessToken,
 		selectedThreadId,
@@ -434,8 +446,12 @@ export async function searchRelatedThreads(options: RelatedSearchOptions): Promi
 		}
 	});
 
-	const threadIds = [...new Set((listResponse.threads ?? []).map((thread) => thread.id).filter(Boolean) as string[])];
-	const filtered = threadIds.filter((threadId) => threadId !== selectedThreadId).slice(0, maxResults);
+	const threadIds = [
+		...new Set((listResponse.threads ?? []).map((thread) => thread.id).filter(Boolean) as string[])
+	];
+	const filtered = threadIds
+		.filter((threadId) => threadId !== selectedThreadId)
+		.slice(0, maxResults);
 
 	const results: StoryThreadResearch[] = [];
 	for (const threadId of filtered) {
@@ -459,7 +475,9 @@ export async function searchRelatedThreads(options: RelatedSearchOptions): Promi
 	return results;
 }
 
-export async function getParticipantHistory(options: ParticipantHistoryOptions): Promise<StoryThreadResearch[]> {
+export async function getParticipantHistory(
+	options: ParticipantHistoryOptions
+): Promise<StoryThreadResearch[]> {
 	const { participant, excludeThreadId, maxResults = 3, ...shared } = options;
 	const normalized = addressToEmail(participant);
 

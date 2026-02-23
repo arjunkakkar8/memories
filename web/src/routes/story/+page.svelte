@@ -159,7 +159,9 @@
 
 			{#if status === 'loading'}
 				<Card className="p-[clamp(1.1rem,2.8vw,2rem)]" elevated={true}>
-					<DotsLoader label="Writing your story" className="w-full justify-center py-[0.35rem]" />
+					<DotsLoader
+						textSnippets={['Researching emails', 'Reading threads', 'Summarizing']}
+					/>
 				</Card>
 			{:else if status === 'error'}
 				<Card className="p-[clamp(1.1rem,2.8vw,2rem)]" elevated={true}>

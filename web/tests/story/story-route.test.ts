@@ -33,7 +33,7 @@ function jsonRequest(body: unknown): Request {
 	});
 }
 
-	describe('/api/story POST route', () => {
+describe('/api/story POST route', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		vi.mocked(getAccessToken).mockReturnValue('gmail-access-token');
@@ -135,7 +135,9 @@ function jsonRequest(body: unknown): Request {
 	});
 
 	it('maps provider/tool failures to non-sensitive stable error envelopes', async () => {
-		vi.mocked(runStoryPipeline).mockRejectedValueOnce(new Error('gmail_request_failed:429 provider details'));
+		vi.mocked(runStoryPipeline).mockRejectedValueOnce(
+			new Error('gmail_request_failed:429 provider details')
+		);
 
 		const providerFailure = await createStory({
 			request: jsonRequest({ threadId: 'thread-123' }),
@@ -150,7 +152,9 @@ function jsonRequest(body: unknown): Request {
 			error: { code: 'story_gmail_request_failed' }
 		});
 
-		vi.mocked(runStoryPipeline).mockRejectedValueOnce(new Error('story_research_missing_selected_thread'));
+		vi.mocked(runStoryPipeline).mockRejectedValueOnce(
+			new Error('story_research_missing_selected_thread')
+		);
 
 		const toolFailure = await createStory({
 			request: jsonRequest({ threadId: 'thread-123' }),
@@ -239,9 +243,20 @@ function jsonRequest(body: unknown): Request {
 		expect(await response.json()).toMatchObject({
 			story: 'Recovered story output'
 		});
-		expect(refreshGoogleAccessToken).toHaveBeenCalledWith('gmail-refresh-token', { fetchImpl: fetch });
-		const refreshedScopes = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/gmail.readonly'];
-		expect(rememberAccessToken).toHaveBeenCalledWith('session-1', 'refreshed-access-token', refreshedScopes);
+		expect(refreshGoogleAccessToken).toHaveBeenCalledWith('gmail-refresh-token', {
+			fetchImpl: fetch
+		});
+		const refreshedScopes = [
+			'openid',
+			'email',
+			'profile',
+			'https://www.googleapis.com/auth/gmail.readonly'
+		];
+		expect(rememberAccessToken).toHaveBeenCalledWith(
+			'session-1',
+			'refreshed-access-token',
+			refreshedScopes
+		);
 		expect(runStoryPipeline).toHaveBeenCalledTimes(2);
 		expect(runStoryPipeline).toHaveBeenNthCalledWith(
 			2,
@@ -253,7 +268,9 @@ function jsonRequest(body: unknown): Request {
 
 	it('returns explicit auth recovery error when refresh token is unavailable', async () => {
 		vi.mocked(getRefreshToken).mockReturnValue(null);
-		vi.mocked(runStoryPipeline).mockRejectedValueOnce(new Error('gmail_request_failed:401 access token expired'));
+		vi.mocked(runStoryPipeline).mockRejectedValueOnce(
+			new Error('gmail_request_failed:401 access token expired')
+		);
 
 		const response = await createStory({
 			request: jsonRequest({ threadId: 'thread-123' }),
@@ -272,8 +289,12 @@ function jsonRequest(body: unknown): Request {
 	});
 
 	it('returns explicit auth recovery error when refresh exchange fails', async () => {
-		vi.mocked(runStoryPipeline).mockRejectedValueOnce(new Error('gmail_request_failed:401 access token expired'));
-		vi.mocked(refreshGoogleAccessToken).mockRejectedValueOnce(new Error('google_token_refresh_failed:400'));
+		vi.mocked(runStoryPipeline).mockRejectedValueOnce(
+			new Error('gmail_request_failed:401 access token expired')
+		);
+		vi.mocked(refreshGoogleAccessToken).mockRejectedValueOnce(
+			new Error('google_token_refresh_failed:400')
+		);
 
 		const response = await createStory({
 			request: jsonRequest({ threadId: 'thread-123' }),

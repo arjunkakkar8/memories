@@ -37,7 +37,10 @@ vi.mock('../../src/lib/server/story/tools', () => ({
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { generateText, stepCountIs } from 'ai';
 import { fetchSelectedThread } from '../../src/lib/server/story/gmail-research';
-import { buildStoryResearchContext, createStoryToolRuntime } from '../../src/lib/server/story/tools';
+import {
+	buildStoryResearchContext,
+	createStoryToolRuntime
+} from '../../src/lib/server/story/tools';
 import { runStoryPipeline } from '../../src/lib/server/story/pipeline';
 
 const toolSet = {
@@ -79,7 +82,7 @@ const baseContext = {
 	]
 };
 
-	describe('runStoryPipeline', () => {
+describe('runStoryPipeline', () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 

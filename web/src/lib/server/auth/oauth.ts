@@ -41,7 +41,9 @@ export const google = {
 		scopes: readonly string[],
 		currentUrl: URL
 	): URL {
-		return createGoogleProvider(currentUrl).createAuthorizationURL(state, codeVerifier, [...scopes]);
+		return createGoogleProvider(currentUrl).createAuthorizationURL(state, codeVerifier, [
+			...scopes
+		]);
 	},
 	validateAuthorizationCode(code: string, codeVerifier: string, currentUrl: URL) {
 		return createGoogleProvider(currentUrl).validateAuthorizationCode(code, codeVerifier);

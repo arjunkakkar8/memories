@@ -9,6 +9,7 @@ export type ScanProgress = {
 
 export type ScanCandidate = {
 	threadId: string;
+	displayTitle: string | null;
 	metadata: {
 		subject: string | null;
 		participants: string[];
@@ -95,7 +96,10 @@ const INITIAL_STATE: ScanStoreState = {
 	error: null
 };
 
-function appendUniqueCandidates(existing: ScanCandidate[], incoming: ScanCandidate[]): ScanCandidate[] {
+function appendUniqueCandidates(
+	existing: ScanCandidate[],
+	incoming: ScanCandidate[]
+): ScanCandidate[] {
 	const seen = new Set(existing.map((candidate) => candidate.threadId));
 	const next = [...existing];
 
