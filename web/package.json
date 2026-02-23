@@ -46,6 +46,7 @@
 		"@openrouter/ai-sdk-provider": "^2.2.3",
 		"ai": "^6.0.97",
 		"arctic": "^3.7.0",
+		"mdsvex": "^0.12.6",
 		"zod": "^4.3.6"
 	}
 }

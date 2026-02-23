@@ -149,7 +149,14 @@ describe('google token refresh primitives', () => {
 
 		expect(response.status).toBe(302);
 
-		const localsEvent = {
+		const localsEvent: {
+			cookies: CookieJar;
+			url: URL;
+			locals: {
+				session: { id: string } | null;
+				user: { subject: string; email: string | null; name: string | null } | null;
+			};
+		} = {
 			cookies,
 			url: new URL('http://localhost:5173/'),
 			locals: {

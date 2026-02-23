@@ -34,6 +34,8 @@ export function createQuotaBudget(options: BudgetOptions = {}) {
 	let usedGmailUnits = 0;
 	let activeGmailRequests = 0;
 	let activeLlmRequests = 0;
+	const gmailQueue: Array<() => void> = [];
+	const llmQueue: Array<() => void> = [];
 
 	function snapshot(): BudgetSnapshot {
 		return {
@@ -61,43 +63,56 @@ export function createQuotaBudget(options: BudgetOptions = {}) {
 		return snapshot();
 	}
 
-	function enter(kind: 'gmail' | 'llm'): void {
+	function acquire(kind: 'gmail' | 'llm'): Promise<void> {
 		if (kind === 'gmail') {
-			if (activeGmailRequests >= maxConcurrentGmail) {
-				throw new QuotaBudgetError(
-					'concurrency_exceeded',
-					`Gmail concurrency limit reached (${maxConcurrentGmail})`
-				);
+			if (activeGmailRequests < maxConcurrentGmail) {
+				activeGmailRequests += 1;
+				return Promise.resolve();
 			}
 
-			activeGmailRequests += 1;
-			return;
+			return new Promise((resolve) => {
+				gmailQueue.push(() => {
+					activeGmailRequests += 1;
+					resolve();
+				});
+			});
 		}
 
-		if (activeLlmRequests >= maxConcurrentLlm) {
-			throw new QuotaBudgetError(
-				'concurrency_exceeded',
-				`LLM concurrency limit reached (${maxConcurrentLlm})`
-			);
+		if (activeLlmRequests < maxConcurrentLlm) {
+			activeLlmRequests += 1;
+			return Promise.resolve();
 		}
 
-		activeLlmRequests += 1;
+		return new Promise((resolve) => {
+			llmQueue.push(() => {
+				activeLlmRequests += 1;
+				resolve();
+			});
+		});
 	}
 
 	function leave(kind: 'gmail' | 'llm'): void {
 		if (kind === 'gmail') {
 			activeGmailRequests = Math.max(0, activeGmailRequests - 1);
+			const next = gmailQueue.shift();
+			if (next) {
+				next();
+			}
 			return;
 		}
 
 		activeLlmRequests = Math.max(0, activeLlmRequests - 1);
+		const next = llmQueue.shift();
+		if (next) {
+			next();
+		}
 	}
 
 	async function withConcurrencySlot<T>(
 		kind: 'gmail' | 'llm',
 		operation: () => Promise<T>
 	): Promise<T> {
-		enter(kind);
+		await acquire(kind);
 		try {
 			return await operation();
 		} finally {

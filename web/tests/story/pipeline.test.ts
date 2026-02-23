@@ -26,8 +26,14 @@ vi.mock('../../src/lib/server/story/gmail-research', () => ({
 		firstMessageAt: '2026-01-01T00:00:00.000Z',
 		lastMessageAt: '2026-01-02T00:00:00.000Z',
 		latestSnippet: 'Snippet',
-		messages: []
-	}))
+		messages: [],
+		provenance: [{ source: 'selected_thread', query: null }]
+	})),
+	searchRelatedThreads: vi.fn(async () => []),
+	getParticipantHistory: vi.fn(async () => []),
+	searchThreadsByConcept: vi.fn(async () => []),
+	searchThreadsByTimeWindow: vi.fn(async () => []),
+	expandParticipantNetwork: vi.fn(async () => [])
 }));
 
 vi.mock('../../src/lib/server/story/tools', () => ({
@@ -47,7 +53,10 @@ import { runStoryPipeline } from '../../src/lib/server/story/pipeline';
 const toolSet = {
 	getSelectedThread: { description: 'Fetch selected thread' },
 	searchRelatedThreads: { description: 'Search related threads' },
-	getParticipantHistory: { description: 'Fetch participant history' }
+	getParticipantHistory: { description: 'Fetch participant history' },
+	searchThreadsByConcept: { description: 'Search concept threads' },
+	searchThreadsByTimeWindow: { description: 'Search timeline threads' },
+	expandParticipantNetwork: { description: 'Expand participant graph' }
 };
 
 const baseContext = {
@@ -60,27 +69,51 @@ const baseContext = {
 		firstMessageAt: '2026-01-01T00:00:00.000Z',
 		lastMessageAt: '2026-01-03T00:00:00.000Z',
 		latestSnippet: 'Latest snippet',
-		messages: []
+		messages: [],
+		provenance: [{ source: 'selected_thread', query: null }]
 	},
-	relatedThreads: [
-		{
-			threadId: 'thread-related-1',
-			historyId: null,
-			subject: 'Related',
-			participants: ['alex@example.com'],
-			messageCount: 2,
-			firstMessageAt: null,
-			lastMessageAt: null,
-			latestSnippet: null,
-			messages: []
-		}
-	],
+	relatedThreads: Array.from({ length: 6 }, (_, index) => ({
+		threadId: `thread-related-${index + 1}`,
+		historyId: null,
+		subject: `Related ${index + 1}`,
+		participants: ['alex@example.com'],
+		messageCount: 2,
+		firstMessageAt: null,
+		lastMessageAt: null,
+		latestSnippet: null,
+		messages: [],
+		provenance: [
+			{
+				source: index < 3 ? 'search_threads_by_concept' : 'search_related_threads',
+				query: null
+			}
+		]
+	})),
 	participantHistory: [
 		{
 			participant: 'alex@example.com',
 			threads: []
+		},
+		{
+			participant: 'jamie@example.com',
+			threads: []
+		},
+		{
+			participant: 'kai@example.com',
+			threads: []
 		}
-	]
+	],
+	explorationSummary: {
+		relatedThreadsDiscovered: 6,
+		participantHistoriesLoaded: 3,
+		conceptThreadsFound: 3,
+		timelineThreadsFound: 1,
+		participantNetworkThreadsFound: 1,
+		provenanceCounts: {
+			search_related_threads: 3,
+			search_threads_by_concept: 3
+		}
+	}
 };
 
 describe('runStoryPipeline', () => {
@@ -93,7 +126,9 @@ describe('runStoryPipeline', () => {
 				selectedThread: null,
 				relatedThreads: new Map(),
 				participantHistory: new Map()
-			}
+			},
+			ingestRelatedThreads: vi.fn(),
+			mergeParticipantHistory: vi.fn()
 		});
 
 		vi.mocked(buildStoryResearchContext).mockReturnValue(baseContext as never);
@@ -113,7 +148,7 @@ describe('runStoryPipeline', () => {
 		};
 	}
 
-	it('runs bounded research with required tools before third-person writing', async () => {
+	it('runs deep-default bounded research with broadened tools before Markdown writing', async () => {
 		const result = await runStoryPipeline({
 			threadId: 'thread-123',
 			accessToken: 'gmail-access-token',
@@ -139,24 +174,34 @@ describe('runStoryPipeline', () => {
 		expect(researchCall?.tools).toMatchObject({
 			getSelectedThread: expect.any(Object),
 			searchRelatedThreads: expect.any(Object),
-			getParticipantHistory: expect.any(Object)
+			getParticipantHistory: expect.any(Object),
+			searchThreadsByConcept: expect.any(Object),
+			searchThreadsByTimeWindow: expect.any(Object),
+			expandParticipantNetwork: expect.any(Object)
 		});
-		expect(researchCall?.stopWhen).toEqual({ type: 'step-count-is', count: 6 });
-		expect(researchCall?.prompt).toContain('Use getSelectedThread first');
+		expect(researchCall?.stopWhen).toEqual({ type: 'step-count-is', count: 12 });
+		expect(researchCall?.prompt).toContain('Coverage minimums');
+		expect(researchCall?.prompt).toContain('Exploration profile: deep');
 
 		const writingCall = vi.mocked(generateText).mock.calls[1]?.[0];
-		expect(writingCall?.prompt).toContain('Write one third-person narrative story');
-		expect(writingCall?.prompt).toContain('no mailbox UI terms');
-		expect(stepCountIs).toHaveBeenCalledWith(6);
+		expect(writingCall?.prompt).toContain('Write one Markdown story');
+		expect(writingCall?.prompt).toContain('second-person');
+		expect(stepCountIs).toHaveBeenCalledWith(12);
 
 		expect(result).toMatchObject({
 			story: 'The story text.',
 			metadata: {
 				threadId: 'thread-123',
+				format: 'markdown',
 				research: {
 					steps: 2,
-					relatedThreads: 1,
-					participantHistories: 1
+					relatedThreads: 6,
+					participantHistories: 3
+				},
+				exploration: {
+					profile: 'deep',
+					relatedThreadsDiscovered: 6,
+					conceptThreadsFound: 3
 				}
 			}
 		});

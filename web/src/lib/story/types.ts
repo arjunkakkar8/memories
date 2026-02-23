@@ -35,10 +35,24 @@ export type StoryClientEvent =
 				metadata: {
 					threadId: string;
 					model: string;
+					format?: 'markdown';
 					research: {
 						steps: number;
 						relatedThreads: number;
 						participantHistories: number;
+					};
+					exploration?: {
+						profile: 'fast' | 'balanced' | 'deep';
+						maxResearchSteps: number;
+						minRelatedThreads: number;
+						minParticipantHistories: number;
+						minConceptThreads: number;
+						relatedThreadsDiscovered: number;
+						participantHistoriesLoaded: number;
+						conceptThreadsFound: number;
+						timelineThreadsFound: number;
+						participantNetworkThreadsFound: number;
+						totalThreadsInContext: number;
 					};
 				};
 			};

@@ -111,9 +111,7 @@ describe('/+page.svelte', () => {
 		});
 
 		await page.getByRole('button', { name: 'Find a starting point' }).click();
-		await expect
-			.element(page.getByRole('status', { name: 'Scan in progress' }))
-			.toBeInTheDocument();
+		await expect.element(page.getByRole('status')).toBeInTheDocument();
 	});
 
 	it('renders candidates as individual cards after explore', async () => {
@@ -251,6 +249,8 @@ describe('/+page.svelte', () => {
 		await page.getByRole('button', { name: 'Find a starting point' }).click();
 		await page.getByRole('heading', { name: 'Selection Thread' }).click();
 
-		expect(mockGoto).toHaveBeenCalledWith('/story/thread-selection');
+		expect(mockGoto).toHaveBeenCalledWith(
+			expect.stringMatching(/\/story\/thread-selection\?seedSubject=Selection(?:\+|%20)Thread/)
+		);
 	});
 });

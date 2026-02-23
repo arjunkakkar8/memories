@@ -13,8 +13,25 @@ import { createStoryStreamState } from './stream-state';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
 
+const explorationSchema = z
+	.object({
+		profile: z.enum(['fast', 'balanced', 'deep']).optional(),
+		maxResearchSteps: z.number().int().min(1).max(18).optional(),
+		minRelatedThreads: z.number().int().min(0).max(12).optional(),
+		minParticipantHistories: z.number().int().min(0).max(8).optional(),
+		minConceptThreads: z.number().int().min(0).max(8).optional(),
+		hints: z
+			.object({
+				subject: z.string().min(1).max(180).optional(),
+				participants: z.array(z.string().min(1).max(320)).max(8).optional()
+			})
+			.optional()
+	})
+	.optional();
+
 const requestSchema = z.object({
-	threadId: z.string().min(1)
+	threadId: z.string().min(1),
+	exploration: explorationSchema
 });
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -106,6 +123,13 @@ async function executeStoryRequest(options: {
 	fetchImpl: typeof fetch;
 	logger: ReturnType<typeof createStoryRequestLogger>;
 	streamWriterTokens: boolean;
+	exploration?: z.infer<typeof explorationSchema>;
+	viewerContext?: {
+		subject: string;
+		email: string | null;
+		name: string | null;
+		narration: 'second-person';
+	};
 	onProgress?: Parameters<typeof runStoryPipeline>[0]['onProgress'];
 	onToken?: Parameters<typeof runStoryPipeline>[0]['onToken'];
 }): Promise<Awaited<ReturnType<typeof runStoryPipeline>>> {
@@ -116,6 +140,8 @@ async function executeStoryRequest(options: {
 		fetchImpl,
 		logger,
 		streamWriterTokens,
+		exploration,
+		viewerContext,
 		onProgress,
 		onToken
 	} = options;
@@ -131,6 +157,8 @@ async function executeStoryRequest(options: {
 			const result = await runStoryPipeline({
 				threadId,
 				accessToken: token,
+				exploration,
+				viewerContext,
 				fetchImpl,
 				logger,
 				streamWriterTokens,
@@ -233,15 +261,24 @@ export const POST: RequestHandler = async ({ request, locals, fetch }) => {
 	}
 
 	const sessionId = locals.session.id;
+	const viewerFromSession = locals.session.user ?? locals.user;
+	const viewerContext = {
+		subject: viewerFromSession?.subject ?? 'signed-in-user',
+		email: viewerFromSession?.email ?? null,
+		name: viewerFromSession?.name ?? null,
+		narration: 'second-person' as const
+	};
 
 	if (!wantsEventStream(request)) {
 		try {
 			const result = await executeStoryRequest({
 				threadId: parsedBody.threadId,
+				exploration: parsedBody.exploration,
 				sessionId,
 				accessToken,
 				fetchImpl: fetch,
 				logger: requestLogger,
+				viewerContext,
 				streamWriterTokens: false
 			});
 
@@ -328,10 +365,12 @@ export const POST: RequestHandler = async ({ request, locals, fetch }) => {
 
 			void executeStoryRequest({
 				threadId: parsedBody.threadId,
+				exploration: parsedBody.exploration,
 				sessionId,
 				accessToken,
 				fetchImpl: fetch,
 				logger: requestLogger,
+				viewerContext,
 				streamWriterTokens: true,
 				onProgress: (progress) => {
 					enqueue({

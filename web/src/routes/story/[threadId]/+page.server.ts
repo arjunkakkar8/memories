@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { parseStoryHandoffHints } from '$lib/ui/candidate-browser/story-handoff';
 import type { PageServerLoad } from './$types';
 
 const MAX_THREAD_ID_LENGTH = 256;
@@ -12,14 +13,16 @@ function readThreadId(value: string | undefined): string {
 	return threadId;
 }
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load: PageServerLoad = async ({ locals, params, url }) => {
 	if (!locals.session) {
 		throw redirect(302, '/auth/google');
 	}
 
 	const threadId = readThreadId(params.threadId);
+	const hints = parseStoryHandoffHints(url.searchParams);
 
 	return {
-		threadId
+		threadId,
+		exploration: hints ? { hints } : null
 	};
 };

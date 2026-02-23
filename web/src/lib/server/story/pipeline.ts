@@ -7,35 +7,55 @@ import {
 	STORY_RESEARCH_SYSTEM_PROMPT,
 	STORY_WRITER_SYSTEM_PROMPT
 } from './prompt';
-import { createStoryResearchBudget, fetchSelectedThread } from './gmail-research';
+import {
+	createStoryResearchBudget,
+	expandParticipantNetwork,
+	fetchSelectedThread,
+	getParticipantHistory,
+	searchRelatedThreads,
+	searchThreadsByConcept,
+	searchThreadsByTimeWindow
+} from './gmail-research';
 import { NOOP_STORY_LOGGER, describeStoryError, parseStatusCode } from './logging';
 import { buildStoryResearchContext, createStoryToolRuntime } from './tools';
+import {
+	resolveStoryExplorationSettings,
+	STORY_CONCEPT_HINT_LIMIT,
+	STORY_DEFAULT_MODEL,
+	STORY_LLM_BACKOFF_BASE_MS,
+	STORY_LLM_BACKOFF_JITTER_MAX_MS,
+	STORY_LLM_BACKOFF_MAX_MS,
+	STORY_MAX_LLM_RETRIES,
+	STORY_NETWORK_FALLBACK_PARTICIPANTS,
+	STORY_NETWORK_FALLBACK_RESULTS_PER_PARTICIPANT,
+	STORY_OPENROUTER_ZERO_RETENTION_DEFAULTS,
+	STORY_PARTICIPANT_HISTORY_FALLBACK_RESULTS,
+	STORY_SEARCH_MIN_RESULTS_FALLBACK,
+	STORY_SEED_PARTICIPANTS_LIMIT,
+	STORY_SELECTED_MESSAGES_FOR_HINTS,
+	STORY_STOPWORDS,
+	STORY_TIMELINE_FALLBACK_RESULTS,
+	STORY_TIMELINE_FALLBACK_WINDOW_DAYS,
+	STORY_TOKEN_PATTERN,
+	type StoryEffectiveExplorationSettings
+} from './config';
 import type {
 	StoryPipelineOptions,
-	StoryPipelineProgress,
 	StoryPipelineResult,
-	StoryPipelineToken
+	StoryPipelineToken,
+	StoryResearchContext,
+	StoryThreadResearch
 } from './types';
 
-const DEFAULT_MODEL = OPENROUTER_MODEL || 'openai/gpt-4o-mini';
-const MAX_RESEARCH_STEPS = 6;
-const MAX_LLM_RETRIES = 2;
-
-export const OPENROUTER_ZERO_RETENTION_DEFAULTS = {
-	provider: {
-		allow_fallbacks: false,
-		data_collection: 'deny',
-		zdr: true
-	}
-} as const;
+const DEFAULT_MODEL = OPENROUTER_MODEL || STORY_DEFAULT_MODEL;
 
 function wait(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function computeBackoffMs(attempt: number): number {
-	const jitter = Math.floor(Math.random() * 90);
-	return Math.min(1_500, 180 * 2 ** attempt + jitter);
+	const jitter = Math.floor(Math.random() * STORY_LLM_BACKOFF_JITTER_MAX_MS);
+	return Math.min(STORY_LLM_BACKOFF_MAX_MS, STORY_LLM_BACKOFF_BASE_MS * 2 ** attempt + jitter);
 }
 
 function shouldRetryLlmCall(error: unknown): boolean {
@@ -110,6 +130,94 @@ type GenerateTextRequest = Parameters<typeof generateText>[0];
 type GenerateTextResult = Awaited<ReturnType<typeof generateText>>;
 type StreamTextRequest = Parameters<typeof streamText>[0];
 
+function coverageDeficits(
+	context: StoryResearchContext,
+	settings: Pick<
+		StoryEffectiveExplorationSettings,
+		'minRelatedThreads' | 'minParticipantHistories' | 'minConceptThreads'
+	>
+): {
+	related: number;
+	participantHistories: number;
+	concept: number;
+} {
+	return {
+		related: Math.max(0, settings.minRelatedThreads - context.relatedThreads.length),
+		participantHistories: Math.max(
+			0,
+			settings.minParticipantHistories - context.participantHistory.length
+		),
+		concept: Math.max(
+			0,
+			settings.minConceptThreads - context.explorationSummary.conceptThreadsFound
+		)
+	};
+}
+
+function shiftIsoDate(value: string | null, days: number): string | null {
+	if (!value) {
+		return null;
+	}
+
+	const parsed = new Date(value);
+	if (Number.isNaN(parsed.getTime())) {
+		return null;
+	}
+
+	parsed.setUTCDate(parsed.getUTCDate() + days);
+	return parsed.toISOString();
+}
+
+function sanitizeSeedParticipants(participants: string[] | undefined): string[] {
+	const deduped = new Set<string>();
+	for (const entry of participants ?? []) {
+		const normalized = entry.trim().toLowerCase();
+		if (normalized && normalized.includes('@')) {
+			deduped.add(normalized);
+		}
+	}
+
+	return [...deduped].slice(0, STORY_SEED_PARTICIPANTS_LIMIT);
+}
+
+function extractConceptTokens(text: string): string[] {
+	const tokenMatches = text.toLowerCase().match(STORY_TOKEN_PATTERN) ?? [];
+	const deduped: string[] = [];
+	const seen = new Set<string>();
+
+	for (const token of tokenMatches) {
+		if (STORY_STOPWORDS.has(token)) {
+			continue;
+		}
+		if (!seen.has(token)) {
+			seen.add(token);
+			deduped.push(token);
+		}
+	}
+
+	return deduped;
+}
+
+function deriveConceptHints(context: StoryResearchContext, hintSubject?: string): string[] {
+	const tokens: string[] = [];
+	if (hintSubject) {
+		tokens.push(...extractConceptTokens(hintSubject));
+	}
+
+	if (context.selectedThread.subject) {
+		tokens.push(...extractConceptTokens(context.selectedThread.subject));
+	}
+
+	for (const message of context.selectedThread.messages.slice(0, 3)) {
+		if (message.excerpt) {
+			tokens.push(...extractConceptTokens(message.excerpt));
+		}
+	}
+
+	const deduped = new Set(tokens);
+	return [...deduped].slice(0, STORY_CONCEPT_HINT_LIMIT);
+}
+
 async function generateTextWithRetry(options: {
 	request: GenerateTextRequest;
 	phase: 'research' | 'writer';
@@ -118,7 +226,7 @@ async function generateTextWithRetry(options: {
 }): Promise<GenerateTextResult> {
 	const { request, phase, logger, onProgress } = options;
 
-	for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt += 1) {
+	for (let attempt = 0; attempt <= STORY_MAX_LLM_RETRIES; attempt += 1) {
 		const attemptNumber = attempt + 1;
 		const startedAt = Date.now();
 		emitProgress(
@@ -134,7 +242,7 @@ async function generateTextWithRetry(options: {
 			{
 				phase,
 				attempt: attemptNumber,
-				maxAttempts: MAX_LLM_RETRIES + 1
+				maxAttempts: STORY_MAX_LLM_RETRIES + 1
 			}
 		);
 
@@ -148,7 +256,7 @@ async function generateTextWithRetry(options: {
 			return response;
 		} catch (error) {
 			const details = describeStoryError(error);
-			const canRetry = attempt < MAX_LLM_RETRIES && shouldRetryLlmCall(error);
+			const canRetry = attempt < STORY_MAX_LLM_RETRIES && shouldRetryLlmCall(error);
 
 			logger?.warn('story.llm.call.failed', {
 				phase,
@@ -188,7 +296,7 @@ async function streamTextWithRetry(options: {
 }): Promise<string> {
 	const { request, logger, onProgress, onToken } = options;
 
-	for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt += 1) {
+	for (let attempt = 0; attempt <= STORY_MAX_LLM_RETRIES; attempt += 1) {
 		const attemptNumber = attempt + 1;
 		const startedAt = Date.now();
 		emitProgress(
@@ -198,7 +306,7 @@ async function streamTextWithRetry(options: {
 			{
 				phase: 'writer',
 				attempt: attemptNumber,
-				maxAttempts: MAX_LLM_RETRIES + 1
+				maxAttempts: STORY_MAX_LLM_RETRIES + 1
 			}
 		);
 
@@ -235,7 +343,7 @@ async function streamTextWithRetry(options: {
 			return text;
 		} catch (error) {
 			const details = describeStoryError(error);
-			const canRetry = attempt < MAX_LLM_RETRIES && shouldRetryLlmCall(error);
+			const canRetry = attempt < STORY_MAX_LLM_RETRIES && shouldRetryLlmCall(error);
 
 			logger?.warn('story.llm.stream.failed', {
 				phase: 'writer',
@@ -267,18 +375,188 @@ async function streamTextWithRetry(options: {
 	throw new Error('openrouter_request_failed:unknown');
 }
 
+async function runDeterministicCoverageFallback(options: {
+	threadId: string;
+	accessToken: string;
+	fetchImpl?: typeof fetch;
+	budget: ReturnType<typeof createStoryResearchBudget>;
+	logger: StoryPipelineOptions['logger'];
+	onProgress?: StoryPipelineOptions['onProgress'];
+	settings: StoryEffectiveExplorationSettings;
+	state: ReturnType<typeof createStoryToolRuntime>['state'];
+	ingestRelatedThreads: (threads: StoryThreadResearch[]) => void;
+	mergeParticipantHistory: (participantEmail: string, threads: StoryThreadResearch[]) => void;
+	hints?: {
+		subject?: string;
+		participants?: string[];
+	};
+}): Promise<StoryResearchContext> {
+	const {
+		threadId,
+		accessToken,
+		fetchImpl,
+		budget,
+		logger,
+		onProgress,
+		settings,
+		state,
+		ingestRelatedThreads,
+		mergeParticipantHistory,
+		hints
+	} = options;
+
+	const sharedResearchOptions = {
+		accessToken,
+		fetchImpl,
+		budget,
+		logger,
+		searchPageSize: settings.searchPageSize,
+		searchMaxPages: settings.searchMaxPages,
+		detailBatchSize: settings.detailBatchSize
+	};
+
+	const seedParticipants = [
+		...sanitizeSeedParticipants(hints?.participants),
+		...sanitizeSeedParticipants(state.selectedThread?.participants)
+	].slice(0, STORY_SEED_PARTICIPANTS_LIMIT);
+	const seedSubject = hints?.subject?.trim() || state.selectedThread?.subject || undefined;
+
+	let context = buildStoryResearchContext(state);
+	let deficits = coverageDeficits(context, settings);
+
+	if (deficits.related > 0 && seedSubject) {
+		const threads = await searchRelatedThreads({
+			...sharedResearchOptions,
+			selectedThreadId: threadId,
+			subjectHint: seedSubject,
+			maxResults: Math.max(deficits.related, STORY_SEARCH_MIN_RESULTS_FALLBACK)
+		});
+		ingestRelatedThreads(threads);
+		context = buildStoryResearchContext(state);
+		deficits = coverageDeficits(context, settings);
+	}
+
+	if (deficits.related > 0) {
+		for (const participant of seedParticipants) {
+			if (deficits.related <= 0) {
+				break;
+			}
+
+			const threads = await searchRelatedThreads({
+				...sharedResearchOptions,
+				selectedThreadId: threadId,
+				participant,
+				maxResults: Math.max(deficits.related, STORY_SEARCH_MIN_RESULTS_FALLBACK)
+			});
+			ingestRelatedThreads(threads);
+			context = buildStoryResearchContext(state);
+			deficits = coverageDeficits(context, settings);
+		}
+	}
+
+	if (deficits.participantHistories > 0) {
+		for (const participant of seedParticipants) {
+			if (deficits.participantHistories <= 0) {
+				break;
+			}
+
+			const historyThreads = await getParticipantHistory({
+				...sharedResearchOptions,
+				participant,
+				excludeThreadId: threadId,
+				maxResults: STORY_PARTICIPANT_HISTORY_FALLBACK_RESULTS
+			});
+			mergeParticipantHistory(participant, historyThreads);
+			ingestRelatedThreads(historyThreads);
+			context = buildStoryResearchContext(state);
+			deficits = coverageDeficits(context, settings);
+		}
+	}
+
+	if (context.selectedThread.firstMessageAt || context.selectedThread.lastMessageAt) {
+		const timelineThreads = await searchThreadsByTimeWindow({
+			...sharedResearchOptions,
+			selectedThreadId: threadId,
+			after: shiftIsoDate(
+				context.selectedThread.firstMessageAt,
+				-STORY_TIMELINE_FALLBACK_WINDOW_DAYS
+			),
+			before: shiftIsoDate(
+				context.selectedThread.lastMessageAt,
+				STORY_TIMELINE_FALLBACK_WINDOW_DAYS
+			),
+			maxResults: STORY_TIMELINE_FALLBACK_RESULTS
+		});
+		ingestRelatedThreads(timelineThreads);
+		context = buildStoryResearchContext(state);
+		deficits = coverageDeficits(context, settings);
+	}
+
+	if (seedParticipants.length > 0) {
+		const networkThreads = await expandParticipantNetwork({
+			...sharedResearchOptions,
+			selectedThreadId: threadId,
+			participantEmail: seedParticipants[0],
+			maxParticipants: STORY_NETWORK_FALLBACK_PARTICIPANTS,
+			maxResultsPerParticipant: STORY_NETWORK_FALLBACK_RESULTS_PER_PARTICIPANT
+		});
+		ingestRelatedThreads(networkThreads);
+		context = buildStoryResearchContext(state);
+		deficits = coverageDeficits(context, settings);
+	}
+
+	if (deficits.concept > 0) {
+		const concepts = deriveConceptHints(context, hints?.subject);
+		for (const concept of concepts) {
+			if (deficits.concept <= 0) {
+				break;
+			}
+
+			const conceptThreads = await searchThreadsByConcept({
+				...sharedResearchOptions,
+				selectedThreadId: threadId,
+				concept,
+				maxResults: Math.max(deficits.concept, STORY_SEARCH_MIN_RESULTS_FALLBACK)
+			});
+			ingestRelatedThreads(conceptThreads);
+			context = buildStoryResearchContext(state);
+			deficits = coverageDeficits(context, settings);
+		}
+	}
+
+	logger?.info('story.pipeline.coverage_fallback.completed', {
+		deficits,
+		relatedThreads: context.relatedThreads.length,
+		participantHistories: context.participantHistory.length,
+		conceptThreads: context.explorationSummary.conceptThreadsFound
+	});
+
+	emitProgress(onProgress, 'research.coverage.fallback.completed', 'Coverage fallback complete', {
+		relatedThreads: context.relatedThreads.length,
+		participantHistories: context.participantHistory.length,
+		conceptThreads: context.explorationSummary.conceptThreadsFound,
+		timelineThreads: context.explorationSummary.timelineThreadsFound,
+		participantNetworkThreads: context.explorationSummary.participantNetworkThreadsFound
+	});
+
+	return context;
+}
+
 export async function runStoryPipeline(
 	options: StoryPipelineOptions
 ): Promise<StoryPipelineResult> {
 	const {
 		accessToken,
 		threadId,
+		exploration,
+		viewerContext,
 		fetchImpl,
 		model = DEFAULT_MODEL,
 		onProgress,
 		onToken,
 		streamWriterTokens = false
 	} = options;
+	const explorationSettings = resolveStoryExplorationSettings(exploration);
 	const logger = (options.logger ?? NOOP_STORY_LOGGER).withContext({ threadId, model });
 	const startedAt = Date.now();
 
@@ -295,30 +573,49 @@ export async function runStoryPipeline(
 	}
 
 	logger.info('story.pipeline.started', {
-		maxResearchSteps: MAX_RESEARCH_STEPS,
-		maxLlmRetries: MAX_LLM_RETRIES
+		profile: explorationSettings.profile,
+		maxResearchSteps: explorationSettings.maxResearchSteps,
+		maxLlmRetries: STORY_MAX_LLM_RETRIES
 	});
 	emitProgress(onProgress, 'pipeline.started', 'Starting story generation', {
 		model,
-		maxResearchSteps: MAX_RESEARCH_STEPS,
-		maxLlmRetries: MAX_LLM_RETRIES
+		profile: explorationSettings.profile,
+		maxResearchSteps: explorationSettings.maxResearchSteps,
+		maxLlmRetries: STORY_MAX_LLM_RETRIES,
+		minRelatedThreads: explorationSettings.minRelatedThreads,
+		minParticipantHistories: explorationSettings.minParticipantHistories,
+		minConceptThreads: explorationSettings.minConceptThreads
 	});
 
 	try {
 		const openrouter = createOpenRouter({
 			apiKey: OPENROUTER_API_KEY,
 			fetch: fetchImpl,
-			extraBody: OPENROUTER_ZERO_RETENTION_DEFAULTS
+			extraBody: STORY_OPENROUTER_ZERO_RETENTION_DEFAULTS
 		});
 
-		const budget = createStoryResearchBudget();
-		logger.info('story.pipeline.budget_initialized', budgetSnapshot(budget));
+		const budget = createStoryResearchBudget({
+			maxGmailUnits: explorationSettings.maxGmailUnits,
+			maxConcurrentGmail: explorationSettings.maxConcurrentGmail,
+			maxConcurrentLlm: 1
+		});
+		logger.info('story.pipeline.budget_initialized', {
+			profile: explorationSettings.profile,
+			maxGmailUnits: explorationSettings.maxGmailUnits,
+			maxConcurrentGmail: explorationSettings.maxConcurrentGmail,
+			...budgetSnapshot(budget)
+		});
 
-		const { tools, state } = createStoryToolRuntime({
+		const { tools, state, ingestRelatedThreads, mergeParticipantHistory } = createStoryToolRuntime({
 			accessToken,
 			selectedThreadId: threadId,
 			fetchImpl,
 			budget,
+			exploration: {
+				searchPageSize: explorationSettings.searchPageSize,
+				searchMaxPages: explorationSettings.searchMaxPages,
+				detailBatchSize: explorationSettings.detailBatchSize
+			},
 			logger,
 			onProgress
 		});
@@ -356,7 +653,8 @@ export async function runStoryPipeline(
 		);
 
 		emitProgress(onProgress, 'research.started', 'Researching email context', {
-			model
+			model,
+			profile: explorationSettings.profile
 		});
 
 		const research = await generateTextWithRetry({
@@ -367,9 +665,13 @@ export async function runStoryPipeline(
 				model: openrouter(model),
 				temperature: 0,
 				system: STORY_RESEARCH_SYSTEM_PROMPT,
-				prompt: buildStoryResearchPrompt(threadId),
+				prompt: buildStoryResearchPrompt({
+					threadId,
+					exploration: explorationSettings,
+					hints: exploration?.hints
+				}),
 				tools,
-				stopWhen: stepCountIs(MAX_RESEARCH_STEPS)
+				stopWhen: stepCountIs(explorationSettings.maxResearchSteps)
 			}
 		});
 
@@ -385,29 +687,68 @@ export async function runStoryPipeline(
 			});
 		}
 
-		const context = buildStoryResearchContext(state);
+		let context = buildStoryResearchContext(state);
+		let deficits = coverageDeficits(context, explorationSettings);
+		if (deficits.related > 0 || deficits.participantHistories > 0 || deficits.concept > 0) {
+			emitProgress(onProgress, 'research.coverage.fallback.started', 'Expanding context coverage', {
+				missingRelatedThreads: deficits.related,
+				missingParticipantHistories: deficits.participantHistories,
+				missingConceptThreads: deficits.concept
+			});
+
+			context = await runDeterministicCoverageFallback({
+				threadId,
+				accessToken,
+				fetchImpl,
+				budget,
+				logger,
+				onProgress,
+				settings: explorationSettings,
+				state,
+				ingestRelatedThreads,
+				mergeParticipantHistory,
+				hints: exploration?.hints
+			});
+
+			deficits = coverageDeficits(context, explorationSettings);
+			logger.info('story.pipeline.coverage_post_fallback', {
+				deficits
+			});
+		}
+
 		logger.info('story.pipeline.research_completed', {
 			researchSteps: research.steps?.length ?? 0,
 			relatedThreads: context.relatedThreads.length,
 			participantHistories: context.participantHistory.length,
-			budget: budgetSnapshot(budget)
+			conceptThreads: context.explorationSummary.conceptThreadsFound,
+			timelineThreads: context.explorationSummary.timelineThreadsFound,
+			participantNetworkThreads: context.explorationSummary.participantNetworkThreadsFound,
+			budget: budgetSnapshot(budget),
+			profile: explorationSettings.profile
 		});
 		emitProgress(onProgress, 'research.completed', 'Finished research', {
 			researchSteps: research.steps?.length ?? 0,
 			relatedThreads: context.relatedThreads.length,
-			participantHistories: context.participantHistory.length
+			participantHistories: context.participantHistory.length,
+			conceptThreads: context.explorationSummary.conceptThreadsFound,
+			timelineThreads: context.explorationSummary.timelineThreadsFound,
+			participantNetworkThreads: context.explorationSummary.participantNetworkThreadsFound
 		});
 
 		emitProgress(onProgress, 'writer.started', 'Writing your story', {
 			model,
-			streaming: streamWriterTokens
+			streaming: streamWriterTokens,
+			format: 'markdown'
 		});
 
 		const writerRequest: GenerateTextRequest = {
 			model: openrouter(model),
 			temperature: 0.5,
 			system: STORY_WRITER_SYSTEM_PROMPT,
-			prompt: buildStoryWriterPrompt(context)
+			prompt: buildStoryWriterPrompt({
+				context,
+				viewerContext
+			})
 		};
 
 		const storyDraft = streamWriterTokens
@@ -431,13 +772,15 @@ export async function runStoryPipeline(
 			throw new Error('story_generation_empty');
 		}
 		emitProgress(onProgress, 'writer.completed', 'Story draft complete', {
-			storyLength: story.length
+			storyLength: story.length,
+			format: 'markdown'
 		});
 
 		logger.info('story.pipeline.completed', {
 			durationMs: Date.now() - startedAt,
 			storyLength: story.length,
-			researchSteps: research.steps?.length ?? 0
+			researchSteps: research.steps?.length ?? 0,
+			profile: explorationSettings.profile
 		});
 
 		return {
@@ -445,16 +788,31 @@ export async function runStoryPipeline(
 			metadata: {
 				threadId,
 				model,
+				format: 'markdown',
 				research: {
 					steps: research.steps?.length ?? 0,
 					relatedThreads: context.relatedThreads.length,
 					participantHistories: context.participantHistory.length
+				},
+				exploration: {
+					profile: explorationSettings.profile,
+					maxResearchSteps: explorationSettings.maxResearchSteps,
+					minRelatedThreads: explorationSettings.minRelatedThreads,
+					minParticipantHistories: explorationSettings.minParticipantHistories,
+					minConceptThreads: explorationSettings.minConceptThreads,
+					relatedThreadsDiscovered: context.explorationSummary.relatedThreadsDiscovered,
+					participantHistoriesLoaded: context.explorationSummary.participantHistoriesLoaded,
+					conceptThreadsFound: context.explorationSummary.conceptThreadsFound,
+					timelineThreadsFound: context.explorationSummary.timelineThreadsFound,
+					participantNetworkThreadsFound: context.explorationSummary.participantNetworkThreadsFound,
+					totalThreadsInContext: context.relatedThreads.length + 1
 				}
 			}
 		};
 	} catch (error) {
 		logger.trackError('story.pipeline.failed', error, {
-			durationMs: Date.now() - startedAt
+			durationMs: Date.now() - startedAt,
+			profile: explorationSettings.profile
 		});
 		throw error;
 	}

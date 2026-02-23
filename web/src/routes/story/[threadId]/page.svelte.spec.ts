@@ -44,7 +44,8 @@ describe('/story/[threadId]/+page.svelte', () => {
 
 		render(StoryPage, {
 			data: {
-				threadId: 'thread-auto-trigger'
+				threadId: 'thread-auto-trigger',
+				exploration: null
 			}
 		});
 
@@ -78,7 +79,7 @@ describe('/story/[threadId]/+page.svelte', () => {
 			onEvent({
 				event: 'story.token',
 				data: {
-					token: 'First paragraph.\n\nSecond paragraph.',
+					token: '# Memory Title\n\n## Turning point\n\nFirst paragraph.\n\nSecond paragraph.',
 					index: 0,
 					timestamp: '2026-02-23T00:00:02.000Z'
 				}
@@ -87,7 +88,7 @@ describe('/story/[threadId]/+page.svelte', () => {
 				event: 'story.complete',
 				data: {
 					completedAt: '2026-02-23T00:00:03.000Z',
-					story: 'First paragraph.\n\nSecond paragraph.',
+					story: '# Memory Title\n\n## Turning point\n\nFirst paragraph.\n\nSecond paragraph.',
 					metadata: {
 						threadId: 'thread-success',
 						model: 'openai/gpt-4o-mini',
@@ -107,10 +108,12 @@ describe('/story/[threadId]/+page.svelte', () => {
 
 		render(StoryPage, {
 			data: {
-				threadId: 'thread-success'
+				threadId: 'thread-success',
+				exploration: null
 			}
 		});
 
+		await expect.element(page.getByRole('heading', { name: 'Memory Title' })).toBeInTheDocument();
 		await expect.element(page.getByText('First paragraph.')).toBeInTheDocument();
 		await expect.element(page.getByText('Second paragraph.')).toBeInTheDocument();
 		await expect
@@ -160,7 +163,8 @@ describe('/story/[threadId]/+page.svelte', () => {
 
 		render(StoryPage, {
 			data: {
-				threadId: 'thread-retry'
+				threadId: 'thread-retry',
+				exploration: null
 			}
 		});
 

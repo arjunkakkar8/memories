@@ -2,6 +2,17 @@ import type { StoryClientEvent } from './types';
 
 type StoryStreamOptions = {
 	threadId: string;
+	exploration?: {
+		profile?: 'fast' | 'balanced' | 'deep';
+		maxResearchSteps?: number;
+		minRelatedThreads?: number;
+		minParticipantHistories?: number;
+		minConceptThreads?: number;
+		hints?: {
+			subject?: string;
+			participants?: string[];
+		};
+	};
 	signal?: AbortSignal;
 	fetchImpl?: typeof fetch;
 	onEvent: (event: StoryClientEvent) => void;
@@ -118,7 +129,7 @@ export function startStoryStream(options: StoryStreamOptions): StoryStreamHandle
 				'content-type': 'application/json',
 				accept: 'text/event-stream'
 			},
-			body: JSON.stringify({ threadId: options.threadId }),
+			body: JSON.stringify({ threadId: options.threadId, exploration: options.exploration }),
 			signal: controller.signal
 		});
 

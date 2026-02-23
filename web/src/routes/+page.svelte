@@ -5,6 +5,7 @@
 	import { createCandidateStore, type ScanStoreState } from '$lib/scan/candidate-store';
 	import { startScanStream, type ScanStreamHandle } from '$lib/scan/client-stream';
 	import { formatCandidateDateRange } from '$lib/ui/candidate-browser/candidate-preview';
+	import { buildStoryHandoffHref } from '$lib/ui/candidate-browser/story-handoff';
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import DotsLoader from '$lib/components/ui/DotsLoader.svelte';
@@ -175,7 +176,10 @@
 						aria-label="Candidate browser"
 					>
 						{#each scanState.candidates as candidate (candidate.threadId)}
-							{@const candidateHref = `/story/${encodeURIComponent(candidate.threadId)}`}
+							{@const candidateHref = buildStoryHandoffHref(candidate.threadId, {
+								subject: candidate.metadata.subject ?? undefined,
+								participants: candidate.metadata.participants
+							})}
 							<li>
 								<Card className="grid gap-3 p-[0.85rem]" elevated={true}>
 									<a

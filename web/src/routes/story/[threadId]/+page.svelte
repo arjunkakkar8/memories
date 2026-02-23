@@ -2,11 +2,18 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import DotsLoader from '$lib/components/ui/DotsLoader.svelte';
+	import { compile } from 'mdsvex';
 	import { startStoryStream, type StoryStreamHandle } from '$lib/story/client-stream';
 	import type { StoryClientEvent } from '$lib/story/types';
 
 	type PageData = {
 		threadId: string;
+		exploration: {
+			hints?: {
+				subject?: string;
+				participants?: string[];
+			};
+		} | null;
 	};
 
 	type StoryStatus = 'loading' | 'success' | 'error';
@@ -26,13 +33,6 @@
 	let streamCompleted = $state(false);
 	let tokenBuffer = '';
 	let tokenFlushTimer: ReturnType<typeof setTimeout> | null = null;
-
-	const paragraphs = $derived(
-		story
-			.split(/\n{2,}/)
-			.map((paragraph) => paragraph.trim())
-			.filter(Boolean)
-	);
 
 	$effect(() => {
 		const key = data.threadId;
@@ -181,6 +181,7 @@
 		try {
 			const streamHandle = startStoryStream({
 				threadId,
+				exploration: data.exploration ?? undefined,
 				signal: controller.signal,
 				onEvent: (event) => {
 					handleStoryEvent(event);
@@ -232,14 +233,11 @@
 </svelte:head>
 
 <main class="min-h-screen py-[clamp(1.25rem,3.8vw,2.75rem)]">
-	<div class="mx-auto w-full max-w-[1080px] px-5 sm:px-6">
-		<section class="mx-auto grid max-w-[70ch] gap-4">
+	<div class="mx-auto w-full max-w-270 px-5 sm:px-6">
+		<section class="grid gap-4">
 			<div class="flex flex-wrap items-center justify-between gap-3">
 				<div>
-					<p class="text-[0.72rem] font-bold tracking-[0.13em] text-bloom-700 uppercase">
-						Memory draft
-					</p>
-					<h1 class="text-[clamp(2rem,5vw,2.8rem)]">Your story</h1>
+					<h1 class="text-[clamp(2rem,5vw,2.8rem)]">Your memory</h1>
 				</div>
 				<Button variant="ghost" size="sm" href="/">Back to explorer</Button>
 			</div>
@@ -251,14 +249,15 @@
 					</section>
 
 					{#if story.trim().length > 0}
-						<article class="mt-4 font-serif text-[clamp(1.08rem,1.7vw,1.22rem)] leading-[1.88] tracking-[0.01em]" aria-live="polite">
-							{#if paragraphs.length === 0}
+						<article
+							class="story-markdown [&_pre]:text-ink-100 mt-4 font-serif text-[clamp(1.08rem,1.7vw,1.22rem)] leading-[1.88] tracking-[0.01em] [&_h1]:mt-6 [&_h1]:text-[clamp(1.5rem,3.4vw,2.1rem)] [&_h1]:leading-[1.25] [&_h2]:mt-5 [&_h2]:text-[clamp(1.2rem,2.4vw,1.45rem)] [&_h2]:leading-[1.35] [&_h3]:mt-4 [&_h3]:text-[1.08rem] [&_h3]:leading-[1.4] [&_ol]:grid [&_ol]:list-decimal [&_ol]:gap-1 [&_ol]:pl-6 [&_p]:mt-4 [&_pre]:mt-4 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-ink-900/90 [&_pre]:p-3 [&_pre]:text-[0.9rem] [&_pre]:leading-[1.6] [&_ul]:grid [&_ul]:list-disc [&_ul]:gap-1 [&_ul]:pl-6"
+							aria-live="polite"
+						>
+							{#await compile(story) then compiled}
+								{@html compiled?.code}
+							{:catch}
 								<p>{story}</p>
-							{:else}
-								{#each paragraphs as paragraph, index (`${index}-${paragraph.slice(0, 24)}`)}
-									<p>{paragraph}</p>
-								{/each}
-							{/if}
+							{/await}
 						</article>
 					{/if}
 				</Card>
@@ -277,14 +276,15 @@
 					className="p-[clamp(1.1rem,2.8vw,2rem)] font-serif text-[clamp(1.08rem,1.7vw,1.22rem)] leading-[1.88] tracking-[0.01em]"
 					elevated={true}
 				>
-					<article aria-live="polite">
-						{#if paragraphs.length === 0}
+					<article
+						class="story-markdown [&_pre]:text-ink-100 [&_h1]:mt-2 [&_h1]:text-[clamp(1.5rem,3.4vw,2.1rem)] [&_h1]:leading-[1.25] [&_h2]:mt-5 [&_h2]:text-[clamp(1.2rem,2.4vw,1.45rem)] [&_h2]:leading-[1.35] [&_h3]:mt-4 [&_h3]:text-[1.08rem] [&_h3]:leading-[1.4] [&_ol]:grid [&_ol]:list-decimal [&_ol]:gap-1 [&_ol]:pl-6 [&_p]:mt-4 [&_pre]:mt-4 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-ink-900/90 [&_pre]:p-3 [&_pre]:text-[0.9rem] [&_pre]:leading-[1.6] [&_ul]:grid [&_ul]:list-disc [&_ul]:gap-1 [&_ul]:pl-6"
+						aria-live="polite"
+					>
+						{#await compile(story) then compiled}
+							{@html compiled?.code}
+						{:catch}
 							<p>{story}</p>
-						{:else}
-							{#each paragraphs as paragraph, index (`${index}-${paragraph.slice(0, 24)}`)}
-								<p>{paragraph}</p>
-							{/each}
-						{/if}
+						{/await}
 					</article>
 				</Card>
 			{/if}

@@ -1,7 +1,40 @@
 import type { StoryLogger } from './logging';
 
+export type StoryExplorationProfile = 'fast' | 'balanced' | 'deep';
+
+export type StoryExplorationOptions = {
+	profile?: StoryExplorationProfile;
+	maxResearchSteps?: number;
+	minRelatedThreads?: number;
+	minParticipantHistories?: number;
+	minConceptThreads?: number;
+	hints?: {
+		subject?: string;
+		participants?: string[];
+	};
+};
+
+export type StoryViewerContext = {
+	subject: string;
+	email: string | null;
+	name: string | null;
+	narration: 'second-person';
+};
+
 export type StoryRequest = {
 	threadId: string;
+	exploration?: StoryExplorationOptions;
+};
+
+export type StoryThreadProvenance = {
+	source:
+		| 'selected_thread'
+		| 'search_related_threads'
+		| 'participant_history'
+		| 'search_threads_by_concept'
+		| 'search_threads_by_time_window'
+		| 'expand_participant_network';
+	query: string | null;
 };
 
 export type StoryMessageExcerpt = {
@@ -24,6 +57,7 @@ export type StoryThreadResearch = {
 	lastMessageAt: string | null;
 	latestSnippet: string | null;
 	messages: StoryMessageExcerpt[];
+	provenance: StoryThreadProvenance[];
 };
 
 export type StoryParticipantHistory = {
@@ -35,15 +69,37 @@ export type StoryResearchContext = {
 	selectedThread: StoryThreadResearch;
 	relatedThreads: StoryThreadResearch[];
 	participantHistory: StoryParticipantHistory[];
+	explorationSummary: {
+		relatedThreadsDiscovered: number;
+		participantHistoriesLoaded: number;
+		conceptThreadsFound: number;
+		timelineThreadsFound: number;
+		participantNetworkThreadsFound: number;
+		provenanceCounts: Record<string, number>;
+	};
 };
 
 export type StoryPipelineMetadata = {
 	threadId: string;
 	model: string;
+	format: 'markdown';
 	research: {
 		steps: number;
 		relatedThreads: number;
 		participantHistories: number;
+	};
+	exploration: {
+		profile: StoryExplorationProfile;
+		maxResearchSteps: number;
+		minRelatedThreads: number;
+		minParticipantHistories: number;
+		minConceptThreads: number;
+		relatedThreadsDiscovered: number;
+		participantHistoriesLoaded: number;
+		conceptThreadsFound: number;
+		timelineThreadsFound: number;
+		participantNetworkThreadsFound: number;
+		totalThreadsInContext: number;
 	};
 };
 
@@ -69,6 +125,8 @@ export type StoryPipelineToken = {
 export type StoryPipelineOptions = {
 	threadId: string;
 	accessToken: string;
+	exploration?: StoryExplorationOptions;
+	viewerContext?: StoryViewerContext;
 	fetchImpl?: typeof fetch;
 	model?: string;
 	logger?: StoryLogger;

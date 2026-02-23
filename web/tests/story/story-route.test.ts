@@ -130,14 +130,28 @@ describe('/api/story POST route', () => {
 
 	it('returns stable story envelope for successful generation', async () => {
 		vi.mocked(runStoryPipeline).mockResolvedValue({
-			story: 'A third-person narrative story.',
+			story: '# A memory\n\n## What happened\n\nA personalized narrative.',
 			metadata: {
 				threadId: 'thread-123',
 				model: 'openai/gpt-4o-mini',
+				format: 'markdown',
 				research: {
 					steps: 3,
 					relatedThreads: 2,
 					participantHistories: 1
+				},
+				exploration: {
+					profile: 'deep',
+					maxResearchSteps: 12,
+					minRelatedThreads: 6,
+					minParticipantHistories: 3,
+					minConceptThreads: 3,
+					relatedThreadsDiscovered: 2,
+					participantHistoriesLoaded: 1,
+					conceptThreadsFound: 1,
+					timelineThreadsFound: 0,
+					participantNetworkThreadsFound: 0,
+					totalThreadsInContext: 3
 				}
 			}
 		} as never);
@@ -152,14 +166,28 @@ describe('/api/story POST route', () => {
 
 		expect(response.status).toBe(200);
 		expect(await response.json()).toEqual({
-			story: 'A third-person narrative story.',
+			story: '# A memory\n\n## What happened\n\nA personalized narrative.',
 			metadata: {
 				threadId: 'thread-123',
 				model: 'openai/gpt-4o-mini',
+				format: 'markdown',
 				research: {
 					steps: 3,
 					relatedThreads: 2,
 					participantHistories: 1
+				},
+				exploration: {
+					profile: 'deep',
+					maxResearchSteps: 12,
+					minRelatedThreads: 6,
+					minParticipantHistories: 3,
+					minConceptThreads: 3,
+					relatedThreadsDiscovered: 2,
+					participantHistoriesLoaded: 1,
+					conceptThreadsFound: 1,
+					timelineThreadsFound: 0,
+					participantNetworkThreadsFound: 0,
+					totalThreadsInContext: 3
 				}
 			}
 		});
@@ -167,7 +195,81 @@ describe('/api/story POST route', () => {
 		expect(runStoryPipeline).toHaveBeenCalledWith(
 			expect.objectContaining({
 				threadId: 'thread-123',
-				accessToken: 'gmail-access-token'
+				accessToken: 'gmail-access-token',
+				viewerContext: {
+					subject: expect.any(String),
+					email: null,
+					name: null,
+					narration: 'second-person'
+				}
+			})
+		);
+	});
+
+	it('accepts optional exploration hints while keeping legacy request compatibility', async () => {
+		vi.mocked(runStoryPipeline).mockResolvedValue({
+			story: '# Story',
+			metadata: {
+				threadId: 'thread-123',
+				model: 'openai/gpt-4o-mini',
+				format: 'markdown',
+				research: {
+					steps: 1,
+					relatedThreads: 0,
+					participantHistories: 0
+				},
+				exploration: {
+					profile: 'deep',
+					maxResearchSteps: 12,
+					minRelatedThreads: 6,
+					minParticipantHistories: 3,
+					minConceptThreads: 3,
+					relatedThreadsDiscovered: 0,
+					participantHistoriesLoaded: 0,
+					conceptThreadsFound: 0,
+					timelineThreadsFound: 0,
+					participantNetworkThreadsFound: 0,
+					totalThreadsInContext: 1
+				}
+			}
+		} as never);
+
+		const response = await createStory({
+			request: jsonRequest({
+				threadId: 'thread-123',
+				exploration: {
+					profile: 'fast',
+					hints: {
+						subject: 'Launch planning',
+						participants: ['alex@example.com']
+					}
+				}
+			}),
+			locals: {
+				session: {
+					id: 'session-1',
+					user: { subject: 'sub-1', email: 'viewer@example.com', name: 'Viewer' }
+				}
+			},
+			fetch
+		} as never);
+
+		expect(response.status).toBe(200);
+		expect(runStoryPipeline).toHaveBeenCalledWith(
+			expect.objectContaining({
+				exploration: {
+					profile: 'fast',
+					hints: {
+						subject: 'Launch planning',
+						participants: ['alex@example.com']
+					}
+				},
+				viewerContext: {
+					subject: 'sub-1',
+					email: 'viewer@example.com',
+					name: 'Viewer',
+					narration: 'second-person'
+				}
 			})
 		);
 	});
@@ -254,10 +356,24 @@ describe('/api/story POST route', () => {
 				metadata: {
 					threadId: 'thread-123',
 					model: 'openai/gpt-4o-mini',
+					format: 'markdown',
 					research: {
 						steps: 1,
 						relatedThreads: 0,
 						participantHistories: 0
+					},
+					exploration: {
+						profile: 'deep',
+						maxResearchSteps: 12,
+						minRelatedThreads: 6,
+						minParticipantHistories: 3,
+						minConceptThreads: 3,
+						relatedThreadsDiscovered: 0,
+						participantHistoriesLoaded: 0,
+						conceptThreadsFound: 0,
+						timelineThreadsFound: 0,
+						participantNetworkThreadsFound: 0,
+						totalThreadsInContext: 1
 					}
 				}
 			} as never);
@@ -371,10 +487,24 @@ describe('/api/story POST route', () => {
 				metadata: {
 					threadId: 'thread-123',
 					model: 'openai/gpt-4o-mini',
+					format: 'markdown',
 					research: {
 						steps: 2,
 						relatedThreads: 1,
 						participantHistories: 1
+					},
+					exploration: {
+						profile: 'deep',
+						maxResearchSteps: 12,
+						minRelatedThreads: 6,
+						minParticipantHistories: 3,
+						minConceptThreads: 3,
+						relatedThreadsDiscovered: 1,
+						participantHistoriesLoaded: 1,
+						conceptThreadsFound: 0,
+						timelineThreadsFound: 0,
+						participantNetworkThreadsFound: 0,
+						totalThreadsInContext: 2
 					}
 				}
 			};

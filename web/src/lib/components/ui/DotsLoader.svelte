@@ -32,7 +32,7 @@
 		'h-2 w-2 animate-bounce rounded-full bg-bloom-soft [animation-duration:0.9s] [animation-timing-function:ease-in-out] [animation-iteration-count:infinite]';
 </script>
 
-<div class="flex items-center gap-2 w-full justify-center">
+<div class="flex w-full items-center justify-center gap-2">
 	{#key activeLabel}
 		<p class="whitespace-nowrap text-bloom-soft" in:slide={{ duration: 300, axis: 'x' }}>
 			{activeLabel}
