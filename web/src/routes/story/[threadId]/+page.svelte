@@ -2,25 +2,14 @@
 	import Button from '$lib/components/ui/Button.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import DotsLoader from '$lib/components/ui/DotsLoader.svelte';
+	import { startStoryStream, type StoryStreamHandle } from '$lib/story/client-stream';
+	import type { StoryClientEvent } from '$lib/story/types';
 
 	type PageData = {
 		threadId: string;
 	};
 
 	type StoryStatus = 'loading' | 'success' | 'error';
-
-	type StoryApiSuccess = {
-		story: string;
-		metadata?: {
-			threadId?: string;
-		};
-	};
-
-	type StoryApiError = {
-		error?: {
-			code?: string;
-		};
-	};
 
 	let { data }: { data: PageData } = $props();
 
@@ -29,8 +18,14 @@
 	let errorMessage = $state('');
 	let inFlightRequestKey = $state<string | null>(null);
 	let activeAbortController = $state<AbortController | null>(null);
+	let activeStreamHandle = $state<StoryStreamHandle | null>(null);
 	let storyThreadId = $state<string | null>(null);
 	let autoTriggerKey = $state<string | null>(null);
+	let currentStatusLabel = $state('Writing your story');
+	let lastStatusKey = $state<string | null>(null);
+	let streamCompleted = $state(false);
+	let tokenBuffer = '';
+	let tokenFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
 	const paragraphs = $derived(
 		story
@@ -70,6 +65,88 @@
 		}
 	}
 
+	function flushTokenBuffer(): void {
+		if (!tokenBuffer) {
+			return;
+		}
+
+		story += tokenBuffer;
+		tokenBuffer = '';
+	}
+
+	function scheduleTokenFlush(): void {
+		if (tokenFlushTimer) {
+			return;
+		}
+
+		tokenFlushTimer = setTimeout(() => {
+			tokenFlushTimer = null;
+			flushTokenBuffer();
+		}, 40);
+	}
+
+	function applyStatusEvent(event: Extract<StoryClientEvent, { event: 'story.status' }>): void {
+		const key = `${event.data.stage}:${event.data.label}`;
+		if (key === lastStatusKey) {
+			return;
+		}
+
+		lastStatusKey = key;
+		currentStatusLabel = event.data.label;
+
+		if (event.data.stage === 'writer.attempt.started' && Number(event.data.metadata?.attempt) > 1) {
+			story = '';
+			tokenBuffer = '';
+		}
+	}
+
+	function handleStoryEvent(event: StoryClientEvent): void {
+		switch (event.event) {
+			case 'story.started': {
+				streamCompleted = false;
+				return;
+			}
+			case 'story.status': {
+				applyStatusEvent(event);
+				return;
+			}
+			case 'story.token': {
+				if (event.data.token) {
+					tokenBuffer += event.data.token;
+					scheduleTokenFlush();
+				}
+
+				if (event.data.isFinal) {
+					if (tokenFlushTimer) {
+						clearTimeout(tokenFlushTimer);
+						tokenFlushTimer = null;
+					}
+					flushTokenBuffer();
+				}
+
+				return;
+			}
+			case 'story.complete': {
+				if (tokenFlushTimer) {
+					clearTimeout(tokenFlushTimer);
+					tokenFlushTimer = null;
+				}
+				flushTokenBuffer();
+				story = event.data.story;
+				storyThreadId = data.threadId;
+				status = 'success';
+				streamCompleted = true;
+				return;
+			}
+			case 'story.error': {
+				throw new Error(toErrorMessage(event.data.code));
+			}
+			case 'story.keepalive': {
+				return;
+			}
+		}
+	}
+
 	async function requestStory(threadId: string, force = false): Promise<void> {
 		if (inFlightRequestKey === threadId) {
 			return;
@@ -90,31 +167,31 @@
 		inFlightRequestKey = threadId;
 		status = 'loading';
 		errorMessage = '';
+		streamCompleted = false;
+		story = '';
+		storyThreadId = null;
+		currentStatusLabel = 'Writing your story';
+		lastStatusKey = null;
+		tokenBuffer = '';
+		if (tokenFlushTimer) {
+			clearTimeout(tokenFlushTimer);
+			tokenFlushTimer = null;
+		}
 
 		try {
-			const response = await fetch('/api/story', {
-				method: 'POST',
-				headers: {
-					'content-type': 'application/json'
-				},
-				body: JSON.stringify({ threadId }),
-				signal: controller.signal
+			const streamHandle = startStoryStream({
+				threadId,
+				signal: controller.signal,
+				onEvent: (event) => {
+					handleStoryEvent(event);
+				}
 			});
+			activeStreamHandle = streamHandle;
+			await streamHandle.done;
 
-			if (!response.ok) {
-				const payload = (await response.json().catch(() => null)) as StoryApiError | null;
-				throw new Error(toErrorMessage(payload?.error?.code));
-			}
-
-			const payload = (await response.json()) as StoryApiSuccess;
-			const nextStory = payload.story?.trim();
-			if (!nextStory) {
+			if (!streamCompleted) {
 				throw new Error(toErrorMessage('story_generation_failed'));
 			}
-
-			story = nextStory;
-			storyThreadId = threadId;
-			status = 'success';
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
 				return;
@@ -125,8 +202,18 @@
 			errorMessage = error instanceof Error ? error.message : toErrorMessage(undefined);
 			status = 'error';
 		} finally {
+			if (tokenFlushTimer) {
+				clearTimeout(tokenFlushTimer);
+				tokenFlushTimer = null;
+			}
+
 			if (activeAbortController === controller) {
 				activeAbortController = null;
+			}
+
+			if (activeStreamHandle) {
+				activeStreamHandle.stop();
+				activeStreamHandle = null;
 			}
 
 			if (inFlightRequestKey === threadId) {
@@ -159,9 +246,21 @@
 
 			{#if status === 'loading'}
 				<Card className="p-[clamp(1.1rem,2.8vw,2rem)]" elevated={true}>
-					<DotsLoader
-						textSnippets={['Researching emails', 'Reading threads', 'Summarizing']}
-					/>
+					<section class="grid gap-3" role="status" aria-live="polite">
+						<DotsLoader label={currentStatusLabel} />
+					</section>
+
+					{#if story.trim().length > 0}
+						<article class="mt-4 font-serif text-[clamp(1.08rem,1.7vw,1.22rem)] leading-[1.88] tracking-[0.01em]" aria-live="polite">
+							{#if paragraphs.length === 0}
+								<p>{story}</p>
+							{:else}
+								{#each paragraphs as paragraph, index (`${index}-${paragraph.slice(0, 24)}`)}
+									<p>{paragraph}</p>
+								{/each}
+							{/if}
+						</article>
+					{/if}
 				</Card>
 			{:else if status === 'error'}
 				<Card className="p-[clamp(1.1rem,2.8vw,2rem)]" elevated={true}>

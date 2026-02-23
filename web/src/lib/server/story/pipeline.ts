@@ -1,6 +1,6 @@
 import { OPENROUTER_API_KEY, OPENROUTER_MODEL } from '$env/static/private';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { generateText, stepCountIs } from 'ai';
+import { generateText, stepCountIs, streamText } from 'ai';
 import {
 	buildStoryResearchPrompt,
 	buildStoryWriterPrompt,
@@ -10,7 +10,12 @@ import {
 import { createStoryResearchBudget, fetchSelectedThread } from './gmail-research';
 import { NOOP_STORY_LOGGER, describeStoryError, parseStatusCode } from './logging';
 import { buildStoryResearchContext, createStoryToolRuntime } from './tools';
-import type { StoryPipelineOptions, StoryPipelineResult } from './types';
+import type {
+	StoryPipelineOptions,
+	StoryPipelineProgress,
+	StoryPipelineResult,
+	StoryPipelineToken
+} from './types';
 
 const DEFAULT_MODEL = OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 const MAX_RESEARCH_STEPS = 6;
@@ -77,19 +82,61 @@ function budgetSnapshot(
 	return {};
 }
 
+function emitProgress(
+	onProgress: StoryPipelineOptions['onProgress'],
+	stage: string,
+	label: string,
+	metadata?: Record<string, unknown>
+): void {
+	onProgress?.({
+		stage,
+		label,
+		metadata,
+		timestamp: new Date().toISOString()
+	});
+}
+
+function emitToken(
+	onToken: StoryPipelineOptions['onToken'],
+	chunk: Omit<StoryPipelineToken, 'timestamp'>
+): void {
+	onToken?.({
+		...chunk,
+		timestamp: new Date().toISOString()
+	});
+}
+
 type GenerateTextRequest = Parameters<typeof generateText>[0];
 type GenerateTextResult = Awaited<ReturnType<typeof generateText>>;
+type StreamTextRequest = Parameters<typeof streamText>[0];
 
 async function generateTextWithRetry(options: {
 	request: GenerateTextRequest;
 	phase: 'research' | 'writer';
 	logger: StoryPipelineOptions['logger'];
+	onProgress?: StoryPipelineOptions['onProgress'];
 }): Promise<GenerateTextResult> {
-	const { request, phase, logger } = options;
+	const { request, phase, logger, onProgress } = options;
 
 	for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt += 1) {
 		const attemptNumber = attempt + 1;
 		const startedAt = Date.now();
+		emitProgress(
+			onProgress,
+			`${phase}.attempt.started`,
+			attemptNumber === 1
+				? phase === 'research'
+					? 'Researching email context'
+					: 'Writing your story'
+				: phase === 'research'
+					? 'Retrying research step'
+					: 'Retrying story draft',
+			{
+				phase,
+				attempt: attemptNumber,
+				maxAttempts: MAX_LLM_RETRIES + 1
+			}
+		);
 
 		try {
 			const response = await generateText(request);
@@ -116,8 +163,100 @@ async function generateTextWithRetry(options: {
 			}
 
 			const backoffMs = computeBackoffMs(attempt);
+			emitProgress(onProgress, `${phase}.retry.scheduled`, 'Scheduling retry', {
+				phase,
+				attempt: attemptNumber,
+				backoffMs
+			});
 			logger?.info('story.llm.call.retry_scheduled', {
 				phase,
+				attempt: attemptNumber,
+				backoffMs
+			});
+			await wait(backoffMs);
+		}
+	}
+
+	throw new Error('openrouter_request_failed:unknown');
+}
+
+async function streamTextWithRetry(options: {
+	request: StreamTextRequest;
+	logger: StoryPipelineOptions['logger'];
+	onProgress?: StoryPipelineOptions['onProgress'];
+	onToken?: StoryPipelineOptions['onToken'];
+}): Promise<string> {
+	const { request, logger, onProgress, onToken } = options;
+
+	for (let attempt = 0; attempt <= MAX_LLM_RETRIES; attempt += 1) {
+		const attemptNumber = attempt + 1;
+		const startedAt = Date.now();
+		emitProgress(
+			onProgress,
+			'writer.attempt.started',
+			attemptNumber === 1 ? 'Writing your story' : 'Retrying story draft',
+			{
+				phase: 'writer',
+				attempt: attemptNumber,
+				maxAttempts: MAX_LLM_RETRIES + 1
+			}
+		);
+
+		try {
+			const response = streamText(request);
+			let tokenIndex = 0;
+
+			for await (const token of response.textStream) {
+				if (!token) {
+					continue;
+				}
+
+				emitToken(onToken, {
+					token,
+					index: tokenIndex
+				});
+				tokenIndex += 1;
+			}
+
+			const text = await response.text;
+			emitToken(onToken, {
+				token: '',
+				index: tokenIndex,
+				isFinal: true
+			});
+
+			logger?.info('story.llm.stream.succeeded', {
+				phase: 'writer',
+				attempt: attemptNumber,
+				durationMs: Date.now() - startedAt,
+				tokenCount: tokenIndex
+			});
+
+			return text;
+		} catch (error) {
+			const details = describeStoryError(error);
+			const canRetry = attempt < MAX_LLM_RETRIES && shouldRetryLlmCall(error);
+
+			logger?.warn('story.llm.stream.failed', {
+				phase: 'writer',
+				attempt: attemptNumber,
+				durationMs: Date.now() - startedAt,
+				...details,
+				willRetry: canRetry
+			});
+
+			if (!canRetry) {
+				throw normalizeLlmError(error);
+			}
+
+			const backoffMs = computeBackoffMs(attempt);
+			emitProgress(onProgress, 'writer.retry.scheduled', 'Scheduling retry', {
+				phase: 'writer',
+				attempt: attemptNumber,
+				backoffMs
+			});
+			logger?.info('story.llm.stream.retry_scheduled', {
+				phase: 'writer',
 				attempt: attemptNumber,
 				backoffMs
 			});
@@ -131,7 +270,15 @@ async function generateTextWithRetry(options: {
 export async function runStoryPipeline(
 	options: StoryPipelineOptions
 ): Promise<StoryPipelineResult> {
-	const { accessToken, threadId, fetchImpl, model = DEFAULT_MODEL } = options;
+	const {
+		accessToken,
+		threadId,
+		fetchImpl,
+		model = DEFAULT_MODEL,
+		onProgress,
+		onToken,
+		streamWriterTokens = false
+	} = options;
 	const logger = (options.logger ?? NOOP_STORY_LOGGER).withContext({ threadId, model });
 	const startedAt = Date.now();
 
@@ -151,6 +298,11 @@ export async function runStoryPipeline(
 		maxResearchSteps: MAX_RESEARCH_STEPS,
 		maxLlmRetries: MAX_LLM_RETRIES
 	});
+	emitProgress(onProgress, 'pipeline.started', 'Starting story generation', {
+		model,
+		maxResearchSteps: MAX_RESEARCH_STEPS,
+		maxLlmRetries: MAX_LLM_RETRIES
+	});
 
 	try {
 		const openrouter = createOpenRouter({
@@ -167,10 +319,20 @@ export async function runStoryPipeline(
 			selectedThreadId: threadId,
 			fetchImpl,
 			budget,
-			logger
+			logger,
+			onProgress
 		});
 
 		logger.info('story.pipeline.prefetch_selected_thread.started');
+		emitProgress(
+			onProgress,
+			'prefetch.selected_thread.started',
+			'Retrieving selected email thread',
+			{
+				tool: 'getSelectedThread',
+				prefetch: true
+			}
+		);
 		state.selectedThread = await fetchSelectedThread(threadId, {
 			accessToken,
 			fetchImpl,
@@ -181,10 +343,26 @@ export async function runStoryPipeline(
 			messageCount: state.selectedThread.messageCount,
 			participantCount: state.selectedThread.participants.length
 		});
+		emitProgress(
+			onProgress,
+			'prefetch.selected_thread.completed',
+			'Retrieved selected email thread',
+			{
+				tool: 'getSelectedThread',
+				prefetch: true,
+				messageCount: state.selectedThread.messageCount,
+				participantCount: state.selectedThread.participants.length
+			}
+		);
+
+		emitProgress(onProgress, 'research.started', 'Researching email context', {
+			model
+		});
 
 		const research = await generateTextWithRetry({
 			phase: 'research',
 			logger,
+			onProgress,
 			request: {
 				model: openrouter(model),
 				temperature: 0,
@@ -214,22 +392,47 @@ export async function runStoryPipeline(
 			participantHistories: context.participantHistory.length,
 			budget: budgetSnapshot(budget)
 		});
-
-		const narrative = await generateTextWithRetry({
-			phase: 'writer',
-			logger,
-			request: {
-				model: openrouter(model),
-				temperature: 0.5,
-				system: STORY_WRITER_SYSTEM_PROMPT,
-				prompt: buildStoryWriterPrompt(context)
-			}
+		emitProgress(onProgress, 'research.completed', 'Finished research', {
+			researchSteps: research.steps?.length ?? 0,
+			relatedThreads: context.relatedThreads.length,
+			participantHistories: context.participantHistory.length
 		});
 
-		const story = narrative.text.trim();
+		emitProgress(onProgress, 'writer.started', 'Writing your story', {
+			model,
+			streaming: streamWriterTokens
+		});
+
+		const writerRequest: GenerateTextRequest = {
+			model: openrouter(model),
+			temperature: 0.5,
+			system: STORY_WRITER_SYSTEM_PROMPT,
+			prompt: buildStoryWriterPrompt(context)
+		};
+
+		const storyDraft = streamWriterTokens
+			? await streamTextWithRetry({
+					request: writerRequest,
+					logger,
+					onProgress,
+					onToken
+				})
+			: (
+					await generateTextWithRetry({
+						phase: 'writer',
+						logger,
+						onProgress,
+						request: writerRequest
+					})
+				).text;
+
+		const story = storyDraft.trim();
 		if (!story) {
 			throw new Error('story_generation_empty');
 		}
+		emitProgress(onProgress, 'writer.completed', 'Story draft complete', {
+			storyLength: story.length
+		});
 
 		logger.info('story.pipeline.completed', {
 			durationMs: Date.now() - startedAt,

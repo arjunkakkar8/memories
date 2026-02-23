@@ -8,12 +8,16 @@ import { refreshGoogleAccessToken } from '$lib/server/auth/google-token-refresh'
 import { QuotaBudgetError } from '$lib/server/scan/quota-budget';
 import { createStoryRequestLogger, describeStoryError } from '$lib/server/story/logging';
 import { runStoryPipeline } from '$lib/server/story/pipeline';
+import { toSseEvent, type StorySseEvent } from './events';
+import { createStoryStreamState } from './stream-state';
 import { z } from 'zod';
 import type { RequestHandler } from './$types';
 
 const requestSchema = z.object({
 	threadId: z.string().min(1)
 });
+
+const HEARTBEAT_INTERVAL_MS = 15_000;
 
 function json(body: unknown, status = 200, requestId: string): Response {
 	return new Response(JSON.stringify(body), {
@@ -23,6 +27,16 @@ function json(body: unknown, status = 200, requestId: string): Response {
 			'x-story-request-id': requestId
 		}
 	});
+}
+
+function sseHeaders(requestId: string): Record<string, string> {
+	return {
+		'content-type': 'text/event-stream; charset=utf-8',
+		'cache-control': 'no-cache, no-transform',
+		connection: 'keep-alive',
+		'x-accel-buffering': 'no',
+		'x-story-request-id': requestId
+	};
 }
 
 function mapError(error: unknown): { status: number; code: string } {
@@ -80,6 +94,101 @@ function isGmailAuthExpiredError(error: unknown): boolean {
 	return error instanceof Error && error.message.startsWith('gmail_request_failed:401');
 }
 
+function wantsEventStream(request: Request): boolean {
+	const accept = request.headers.get('accept') ?? '';
+	return accept.includes('text/event-stream');
+}
+
+async function executeStoryRequest(options: {
+	threadId: string;
+	sessionId: string;
+	accessToken: string;
+	fetchImpl: typeof fetch;
+	logger: ReturnType<typeof createStoryRequestLogger>;
+	streamWriterTokens: boolean;
+	onProgress?: Parameters<typeof runStoryPipeline>[0]['onProgress'];
+	onToken?: Parameters<typeof runStoryPipeline>[0]['onToken'];
+}): Promise<Awaited<ReturnType<typeof runStoryPipeline>>> {
+	const {
+		threadId,
+		sessionId,
+		accessToken,
+		fetchImpl,
+		logger,
+		streamWriterTokens,
+		onProgress,
+		onToken
+	} = options;
+
+	const runPipeline = async (token: string, attempt: 'initial' | 'after_refresh') => {
+		const startedAt = Date.now();
+		logger.info('story.pipeline.attempt.started', {
+			attempt,
+			streamWriterTokens
+		});
+
+		try {
+			const result = await runStoryPipeline({
+				threadId,
+				accessToken: token,
+				fetchImpl,
+				logger,
+				streamWriterTokens,
+				onProgress,
+				onToken
+			});
+
+			logger.info('story.pipeline.attempt.completed', {
+				attempt,
+				durationMs: Date.now() - startedAt,
+				research: result.metadata.research
+			});
+
+			return result;
+		} catch (error) {
+			logger.warn('story.pipeline.attempt.failed', {
+				attempt,
+				durationMs: Date.now() - startedAt,
+				...describeStoryError(error)
+			});
+			throw error;
+		}
+	};
+
+	try {
+		return await runPipeline(accessToken, 'initial');
+	} catch (error) {
+		if (!isGmailAuthExpiredError(error)) {
+			throw error;
+		}
+
+		logger.warn('story.request.refresh_attempt.started');
+		const refreshToken = getRefreshToken(sessionId);
+		if (!refreshToken) {
+			logger.warn('story.request.refresh_attempt.missing_refresh_token');
+			throw new Error('gmail_request_failed:401 refresh_token_missing');
+		}
+
+		const refreshed = await refreshGoogleAccessToken(refreshToken, { fetchImpl });
+		const refreshedScopes = (refreshed.scope ?? '').split(' ').filter(Boolean);
+		if (!hasRequiredGmailScope(refreshedScopes)) {
+			logger.warn('story.request.refresh_attempt.missing_required_scope', {
+				refreshedScopes,
+				scopeFieldPresent: Boolean(refreshed.scope)
+			});
+			throw new Error('gmail_request_failed:401 insufficient_scope_after_refresh');
+		}
+
+		rememberAccessToken(sessionId, refreshed.accessToken, refreshedScopes);
+		logger.info('story.request.refresh_attempt.succeeded', {
+			refreshedScopes,
+			expiresIn: refreshed.expiresIn
+		});
+
+		return runPipeline(refreshed.accessToken, 'after_refresh');
+	}
+}
+
 export const POST: RequestHandler = async ({ request, locals, fetch }) => {
 	const logger = createStoryRequestLogger({
 		sessionId: locals.session?.id ?? null
@@ -123,83 +232,19 @@ export const POST: RequestHandler = async ({ request, locals, fetch }) => {
 		return json({ error: { code: 'gmail_access_token_missing' } }, 400, requestLogger.requestId);
 	}
 
-	const runPipeline = async (token: string, attempt: 'initial' | 'after_refresh') => {
-		const startedAt = Date.now();
-		requestLogger.info('story.pipeline.attempt.started', {
-			attempt
-		});
+	const sessionId = locals.session.id;
 
+	if (!wantsEventStream(request)) {
 		try {
-			const result = await runStoryPipeline({
+			const result = await executeStoryRequest({
 				threadId: parsedBody.threadId,
-				accessToken: token,
+				sessionId,
+				accessToken,
 				fetchImpl: fetch,
-				logger: requestLogger
+				logger: requestLogger,
+				streamWriterTokens: false
 			});
 
-			requestLogger.info('story.pipeline.attempt.completed', {
-				attempt,
-				durationMs: Date.now() - startedAt,
-				research: result.metadata.research
-			});
-
-			return result;
-		} catch (error) {
-			requestLogger.warn('story.pipeline.attempt.failed', {
-				attempt,
-				durationMs: Date.now() - startedAt,
-				...describeStoryError(error)
-			});
-			throw error;
-		}
-	};
-
-	try {
-		const result = await runPipeline(accessToken, 'initial');
-
-		return json(
-			{
-				story: result.story,
-				metadata: result.metadata
-			},
-			200,
-			requestLogger.requestId
-		);
-	} catch (error) {
-		if (!isGmailAuthExpiredError(error)) {
-			const { status, code } = mapError(error);
-			requestLogger.trackError('story.request.failed', error, {
-				status,
-				code
-			});
-			return json({ error: { code } }, status, requestLogger.requestId);
-		}
-
-		requestLogger.warn('story.request.refresh_attempt.started');
-		const refreshToken = getRefreshToken(locals.session.id);
-		if (!refreshToken) {
-			requestLogger.warn('story.request.refresh_attempt.missing_refresh_token');
-			return json({ error: { code: 'gmail_reauth_required' } }, 401, requestLogger.requestId);
-		}
-
-		try {
-			const refreshed = await refreshGoogleAccessToken(refreshToken, { fetchImpl: fetch });
-			const refreshedScopes = (refreshed.scope ?? '').split(' ').filter(Boolean);
-			if (!hasRequiredGmailScope(refreshedScopes)) {
-				requestLogger.warn('story.request.refresh_attempt.missing_required_scope', {
-					refreshedScopes,
-					scopeFieldPresent: Boolean(refreshed.scope)
-				});
-				return json({ error: { code: 'gmail_reauth_required' } }, 401, requestLogger.requestId);
-			}
-
-			rememberAccessToken(locals.session.id, refreshed.accessToken, refreshedScopes);
-			requestLogger.info('story.request.refresh_attempt.succeeded', {
-				refreshedScopes,
-				expiresIn: refreshed.expiresIn
-			});
-
-			const result = await runPipeline(refreshed.accessToken, 'after_refresh');
 			return json(
 				{
 					story: result.story,
@@ -208,32 +253,152 @@ export const POST: RequestHandler = async ({ request, locals, fetch }) => {
 				200,
 				requestLogger.requestId
 			);
-		} catch (retryOrRefreshError) {
-			if (isGmailAuthExpiredError(retryOrRefreshError)) {
-				requestLogger.warn('story.request.refresh_attempt.failed_reauth_required', {
-					...describeStoryError(retryOrRefreshError)
-				});
-				return json({ error: { code: 'gmail_reauth_required' } }, 401, requestLogger.requestId);
-			}
-
+		} catch (error) {
 			if (
-				retryOrRefreshError instanceof Error &&
-				(retryOrRefreshError.message === 'google_refresh_token_missing' ||
-					retryOrRefreshError.message.startsWith('google_token_refresh_') ||
-					retryOrRefreshError.message === 'google_oauth_not_configured')
+				error instanceof Error &&
+				(error.message === 'google_refresh_token_missing' ||
+					error.message.startsWith('google_token_refresh_') ||
+					error.message === 'google_oauth_not_configured' ||
+					isGmailAuthExpiredError(error))
 			) {
-				requestLogger.warn('story.request.refresh_attempt.failed_refresh_exchange', {
-					...describeStoryError(retryOrRefreshError)
+				requestLogger.warn('story.request.failed_reauth_required', {
+					...describeStoryError(error)
 				});
 				return json({ error: { code: 'gmail_reauth_required' } }, 401, requestLogger.requestId);
 			}
 
-			const { status, code } = mapError(retryOrRefreshError);
-			requestLogger.trackError('story.request.failed_after_refresh', retryOrRefreshError, {
+			const { status, code } = mapError(error);
+			requestLogger.trackError('story.request.failed', error, {
 				status,
 				code
 			});
 			return json({ error: { code } }, status, requestLogger.requestId);
 		}
 	}
+
+	const streamState = createStoryStreamState();
+	const encoder = new TextEncoder();
+
+	const stream = new ReadableStream<Uint8Array>({
+		start(controller) {
+			let isClosed = false;
+			const streamStartedAt = Date.now();
+
+			const enqueue = (event: StorySseEvent): void => {
+				if (isClosed) {
+					return;
+				}
+
+				if (event.event === 'story.status') {
+					streamState.incrementStatusCount();
+				}
+
+				if (event.event === 'story.token') {
+					streamState.incrementTokenCount();
+				}
+
+				controller.enqueue(encoder.encode(toSseEvent(event, streamState.nextEventId())));
+			};
+
+			const close = (): void => {
+				if (isClosed) {
+					return;
+				}
+
+				isClosed = true;
+				controller.close();
+			};
+
+			const heartbeat = setInterval(() => {
+				enqueue({
+					event: 'story.keepalive',
+					data: {
+						timestamp: new Date().toISOString()
+					}
+				});
+			}, HEARTBEAT_INTERVAL_MS);
+
+			requestLogger.info('story.stream.started');
+			enqueue({
+				event: 'story.started',
+				data: {
+					startedAt: new Date().toISOString()
+				}
+			});
+
+			void executeStoryRequest({
+				threadId: parsedBody.threadId,
+				sessionId,
+				accessToken,
+				fetchImpl: fetch,
+				logger: requestLogger,
+				streamWriterTokens: true,
+				onProgress: (progress) => {
+					enqueue({
+						event: 'story.status',
+						data: progress
+					});
+				},
+				onToken: (token) => {
+					enqueue({
+						event: 'story.token',
+						data: token
+					});
+				}
+			})
+				.then((result) => {
+					enqueue({
+						event: 'story.complete',
+						data: {
+							completedAt: new Date().toISOString(),
+							story: result.story,
+							metadata: result.metadata
+						}
+					});
+					const stats = streamState.snapshot();
+					requestLogger.info('story.stream.completed', {
+						durationMs: Date.now() - streamStartedAt,
+						statusEventCount: stats.statusEventCount,
+						tokenEventCount: stats.tokenEventCount
+					});
+				})
+				.catch((error: unknown) => {
+					const code =
+						error instanceof Error &&
+						(error.message === 'google_refresh_token_missing' ||
+							error.message.startsWith('google_token_refresh_') ||
+							error.message === 'google_oauth_not_configured' ||
+							isGmailAuthExpiredError(error))
+							? 'gmail_reauth_required'
+							: mapError(error).code;
+
+					enqueue({
+						event: 'story.error',
+						data: {
+							code
+						}
+					});
+
+					const stats = streamState.snapshot();
+					requestLogger.trackError('story.stream.failed', error, {
+						code,
+						durationMs: Date.now() - streamStartedAt,
+						statusEventCount: stats.statusEventCount,
+						tokenEventCount: stats.tokenEventCount
+					});
+				})
+				.finally(() => {
+					clearInterval(heartbeat);
+					close();
+				});
+		},
+		cancel() {
+			// Request scope is ephemeral; pipeline run naturally completes.
+		}
+	});
+
+	return new Response(stream, {
+		status: 200,
+		headers: sseHeaders(requestLogger.requestId)
+	});
 };

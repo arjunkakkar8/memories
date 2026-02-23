@@ -52,10 +52,27 @@ export type StoryPipelineResult = {
 	metadata: StoryPipelineMetadata;
 };
 
+export type StoryPipelineProgress = {
+	label: string;
+	stage: string;
+	metadata?: Record<string, unknown>;
+	timestamp: string;
+};
+
+export type StoryPipelineToken = {
+	token: string;
+	index: number;
+	isFinal?: boolean;
+	timestamp: string;
+};
+
 export type StoryPipelineOptions = {
 	threadId: string;
 	accessToken: string;
 	fetchImpl?: typeof fetch;
 	model?: string;
 	logger?: StoryLogger;
+	onProgress?: (progress: StoryPipelineProgress) => void;
+	onToken?: (token: StoryPipelineToken) => void;
+	streamWriterTokens?: boolean;
 };

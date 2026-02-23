@@ -23,14 +23,52 @@ import { refreshGoogleAccessToken } from '../../src/lib/server/auth/google-token
 import { runStoryPipeline } from '../../src/lib/server/story/pipeline';
 import { POST as createStory } from '../../src/routes/api/story/+server';
 
-function jsonRequest(body: unknown): Request {
+function jsonRequest(body: unknown, accept?: string): Request {
 	return new Request('http://localhost:5173/api/story', {
 		method: 'POST',
 		headers: {
-			'content-type': 'application/json'
+			'content-type': 'application/json',
+			...(accept ? { accept } : {})
 		},
 		body: JSON.stringify(body)
 	});
+}
+
+type ParsedSseEvent = {
+	event: string;
+	data: unknown;
+};
+
+async function readSseEvents(response: Response): Promise<ParsedSseEvent[]> {
+	const payload = await response.text();
+	const chunks = payload.split('\n\n').filter(Boolean);
+	const events: ParsedSseEvent[] = [];
+
+	for (const chunk of chunks) {
+		const lines = chunk.split('\n');
+		let eventName = '';
+		let dataText = '';
+
+		for (const line of lines) {
+			if (line.startsWith('event:')) {
+				eventName = line.slice('event:'.length).trim();
+			}
+			if (line.startsWith('data:')) {
+				dataText = line.slice('data:'.length).trim();
+			}
+		}
+
+		if (!eventName || !dataText) {
+			continue;
+		}
+
+		events.push({
+			event: eventName,
+			data: JSON.parse(dataText)
+		});
+	}
+
+	return events;
 }
 
 describe('/api/story POST route', () => {
@@ -309,5 +347,84 @@ describe('/api/story POST route', () => {
 			error: { code: 'gmail_reauth_required' }
 		});
 		expect(runStoryPipeline).toHaveBeenCalledTimes(1);
+	});
+
+	it('streams ordered SSE lifecycle events when requested', async () => {
+		vi.mocked(runStoryPipeline).mockImplementation(async (options) => {
+			options.onProgress?.({
+				stage: 'pipeline.started',
+				label: 'Starting story generation',
+				timestamp: '2026-02-23T00:00:00.000Z'
+			});
+			options.onToken?.({
+				token: 'Hello',
+				index: 0,
+				timestamp: '2026-02-23T00:00:01.000Z'
+			});
+			options.onToken?.({
+				token: ' world',
+				index: 1,
+				timestamp: '2026-02-23T00:00:01.100Z'
+			});
+			return {
+				story: 'Hello world',
+				metadata: {
+					threadId: 'thread-123',
+					model: 'openai/gpt-4o-mini',
+					research: {
+						steps: 2,
+						relatedThreads: 1,
+						participantHistories: 1
+					}
+				}
+			};
+		});
+
+		const response = await createStory({
+			request: jsonRequest({ threadId: 'thread-123' }, 'text/event-stream'),
+			locals: {
+				session: { id: 'session-1' }
+			},
+			fetch
+		} as never);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('content-type')).toContain('text/event-stream');
+		const events = await readSseEvents(response);
+		expect(events.map((event) => event.event)).toEqual([
+			'story.started',
+			'story.status',
+			'story.token',
+			'story.token',
+			'story.complete'
+		]);
+		expect(events[4]).toEqual({
+			event: 'story.complete',
+			data: expect.objectContaining({
+				story: 'Hello world'
+			})
+		});
+	});
+
+	it('streams story.error with stable code on failures', async () => {
+		vi.mocked(runStoryPipeline).mockRejectedValueOnce(new Error('story_generation_empty'));
+
+		const response = await createStory({
+			request: jsonRequest({ threadId: 'thread-123' }, 'text/event-stream'),
+			locals: {
+				session: { id: 'session-1' }
+			},
+			fetch
+		} as never);
+
+		expect(response.status).toBe(200);
+		const events = await readSseEvents(response);
+		expect(events.map((event) => event.event)).toEqual(['story.started', 'story.error']);
+		expect(events[1]).toEqual({
+			event: 'story.error',
+			data: {
+				code: 'story_generation_failed'
+			}
+		});
 	});
 });

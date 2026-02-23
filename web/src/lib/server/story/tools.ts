@@ -7,7 +7,12 @@ import {
 	createStoryResearchBudget
 } from './gmail-research';
 import { NOOP_STORY_LOGGER, describeStoryError, type StoryLogger } from './logging';
-import type { StoryParticipantHistory, StoryResearchContext, StoryThreadResearch } from './types';
+import type {
+	StoryParticipantHistory,
+	StoryPipelineProgress,
+	StoryResearchContext,
+	StoryThreadResearch
+} from './types';
 
 type StoryResearchBudget = ReturnType<typeof createStoryResearchBudget>;
 
@@ -17,6 +22,7 @@ type StoryToolContext = {
 	fetchImpl?: typeof fetch;
 	budget: StoryResearchBudget;
 	logger?: StoryLogger;
+	onProgress?: (progress: StoryPipelineProgress) => void;
 };
 
 export type StoryToolState = {
@@ -31,6 +37,19 @@ function toKey(value: string): string {
 
 export function createStoryToolRuntime(context: StoryToolContext) {
 	const logger = context.logger ?? NOOP_STORY_LOGGER;
+
+	const emitProgress = (
+		stage: string,
+		label: string,
+		metadata?: Record<string, unknown>
+	): void => {
+		context.onProgress?.({
+			stage,
+			label,
+			metadata,
+			timestamp: new Date().toISOString()
+		});
+	};
 
 	const state: StoryToolState = {
 		selectedThread: null,
@@ -47,6 +66,11 @@ export function createStoryToolRuntime(context: StoryToolContext) {
 			}),
 			execute: async ({ threadId }) => {
 				if (state.selectedThread && state.selectedThread.threadId === threadId) {
+				emitProgress('tool.getSelectedThread.completed', 'Retrieved selected email thread', {
+					tool: 'getSelectedThread',
+					cacheHit: true,
+					messageCount: state.selectedThread.messageCount
+				});
 					logger.info('story.tool.get_selected_thread.cache_hit', {
 						messageCount: state.selectedThread.messageCount,
 						participantCount: state.selectedThread.participants.length
@@ -55,6 +79,9 @@ export function createStoryToolRuntime(context: StoryToolContext) {
 				}
 
 				const startedAt = Date.now();
+				emitProgress('tool.getSelectedThread.started', 'Retrieving selected email thread', {
+					tool: 'getSelectedThread'
+				});
 				logger.info('story.tool.get_selected_thread.started');
 
 				try {
@@ -66,6 +93,12 @@ export function createStoryToolRuntime(context: StoryToolContext) {
 					});
 
 					state.selectedThread = thread;
+					emitProgress('tool.getSelectedThread.completed', 'Retrieved selected email thread', {
+						tool: 'getSelectedThread',
+						durationMs: Date.now() - startedAt,
+						messageCount: thread.messageCount,
+						participantCount: thread.participants.length
+					});
 					logger.info('story.tool.get_selected_thread.succeeded', {
 						durationMs: Date.now() - startedAt,
 						messageCount: thread.messageCount,
@@ -91,6 +124,11 @@ export function createStoryToolRuntime(context: StoryToolContext) {
 			}),
 			execute: async ({ participantEmail, subjectHint, maxResults }) => {
 				const startedAt = Date.now();
+				emitProgress('tool.searchRelatedThreads.started', 'Finding related emails', {
+					tool: 'searchRelatedThreads',
+					hasParticipant: Boolean(participantEmail),
+					maxResults: maxResults ?? null
+				});
 				logger.info('story.tool.search_related_threads.started', {
 					hasParticipant: Boolean(participantEmail),
 					hasSubjectHint: Boolean(subjectHint),
@@ -112,6 +150,12 @@ export function createStoryToolRuntime(context: StoryToolContext) {
 					for (const thread of threads) {
 						state.relatedThreads.set(thread.threadId, thread);
 					}
+
+					emitProgress('tool.searchRelatedThreads.completed', 'Found related emails', {
+						tool: 'searchRelatedThreads',
+						durationMs: Date.now() - startedAt,
+						threadCount: threads.length
+					});
 
 					logger.info('story.tool.search_related_threads.succeeded', {
 						durationMs: Date.now() - startedAt,
@@ -137,6 +181,10 @@ export function createStoryToolRuntime(context: StoryToolContext) {
 			}),
 			execute: async ({ participantEmail, maxResults }) => {
 				const startedAt = Date.now();
+				emitProgress('tool.getParticipantHistory.started', 'Looking up participant history', {
+					tool: 'getParticipantHistory',
+					maxResults: maxResults ?? null
+				});
 				logger.info('story.tool.get_participant_history.started', {
 					maxResults: maxResults ?? null
 				});
@@ -160,6 +208,12 @@ export function createStoryToolRuntime(context: StoryToolContext) {
 					for (const thread of threads) {
 						state.relatedThreads.set(thread.threadId, thread);
 					}
+
+					emitProgress('tool.getParticipantHistory.completed', 'Loaded participant history', {
+						tool: 'getParticipantHistory',
+						durationMs: Date.now() - startedAt,
+						threadCount: threads.length
+					});
 
 					logger.info('story.tool.get_participant_history.succeeded', {
 						durationMs: Date.now() - startedAt,

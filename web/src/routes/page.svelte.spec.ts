@@ -2,7 +2,6 @@ import { page } from 'vitest/browser';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { formatCandidateDateRange } from '$lib/ui/candidate-browser/candidate-preview';
-import { buildStoryHandoffHref } from '$lib/ui/candidate-browser/story-handoff';
 import Page from './+page.svelte';
 
 const { mockStartScanStream, mockGoto } = vi.hoisted(() => ({
@@ -252,6 +251,6 @@ describe('/+page.svelte', () => {
 		await page.getByRole('button', { name: 'Find a starting point' }).click();
 		await page.getByRole('heading', { name: 'Selection Thread' }).click();
 
-		expect(mockGoto).toHaveBeenCalledWith(buildStoryHandoffHref(selectedCandidate));
+		expect(mockGoto).toHaveBeenCalledWith('/story/thread-selection');
 	});
 });

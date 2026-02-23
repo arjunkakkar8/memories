@@ -7,6 +7,7 @@ vi.mock('$env/static/private', () => ({
 
 vi.mock('ai', () => ({
 	generateText: vi.fn(),
+	streamText: vi.fn(),
 	stepCountIs: vi.fn((count: number) => ({ type: 'step-count-is', count }))
 }));
 
@@ -35,7 +36,7 @@ vi.mock('../../src/lib/server/story/tools', () => ({
 }));
 
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { generateText, stepCountIs } from 'ai';
+import { generateText, stepCountIs, streamText } from 'ai';
 import { fetchSelectedThread } from '../../src/lib/server/story/gmail-research';
 import {
 	buildStoryResearchContext,
@@ -102,6 +103,16 @@ describe('runStoryPipeline', () => {
 			.mockResolvedValueOnce({ text: '  The story text.  ' } as never);
 	});
 
+	function createTextStream(tokens: string[]): AsyncIterable<string> {
+		return {
+			async *[Symbol.asyncIterator]() {
+				for (const token of tokens) {
+					yield token;
+				}
+			}
+		};
+	}
+
 	it('runs bounded research with required tools before third-person writing', async () => {
 		const result = await runStoryPipeline({
 			threadId: 'thread-123',
@@ -112,10 +123,12 @@ describe('runStoryPipeline', () => {
 		expect(createOpenRouter).toHaveBeenCalledWith(
 			expect.objectContaining({
 				apiKey: 'openrouter-test-key',
+				fetch: expect.any(Function),
 				extraBody: {
 					provider: {
 						allow_fallbacks: false,
-						data_collection: 'deny'
+						data_collection: 'deny',
+						zdr: true
 					}
 				}
 			})
@@ -176,5 +189,49 @@ describe('runStoryPipeline', () => {
 				accessToken: 'gmail-access-token'
 			})
 		).rejects.toThrow('story_generation_empty');
+	});
+
+	it('emits stage progress updates including retry scheduling metadata', async () => {
+		vi.mocked(generateText).mockReset();
+		vi.mocked(generateText)
+			.mockRejectedValueOnce(new Error('openrouter_request_failed:503'))
+			.mockResolvedValueOnce({ steps: [{ type: 'tool-call' }] } as never)
+			.mockResolvedValueOnce({ text: 'Story after retry.' } as never);
+
+		const progress: string[] = [];
+		await runStoryPipeline({
+			threadId: 'thread-123',
+			accessToken: 'gmail-access-token',
+			onProgress: (entry) => {
+				progress.push(entry.stage);
+			}
+		});
+
+		expect(progress).toContain('pipeline.started');
+		expect(progress).toContain('research.retry.scheduled');
+		expect(progress).toContain('research.completed');
+		expect(progress).toContain('writer.completed');
+	});
+
+	it('streams writer tokens in order and reconstructs final story', async () => {
+		vi.mocked(generateText).mockReset();
+		vi.mocked(generateText).mockResolvedValueOnce({ steps: [] } as never);
+		vi.mocked(streamText).mockReturnValue({
+			textStream: createTextStream(['The ', 'final ', 'story.']),
+			text: Promise.resolve('The final story.')
+		} as never);
+
+		const tokens: string[] = [];
+		const result = await runStoryPipeline({
+			threadId: 'thread-123',
+			accessToken: 'gmail-access-token',
+			streamWriterTokens: true,
+			onToken: (entry) => {
+				tokens.push(entry.token);
+			}
+		});
+
+		expect(tokens).toEqual(['The ', 'final ', 'story.', '']);
+		expect(result.story).toBe('The final story.');
 	});
 });
