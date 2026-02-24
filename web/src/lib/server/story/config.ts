@@ -131,15 +131,15 @@ export const STORY_EXPLORATION_PROFILE_DEFAULTS: Record<
     detailBatchSize: 4
   },
   deep: {
-    maxResearchSteps: 30,
-    minRelatedThreads: 20,
-    minParticipantHistories: 20,
-    minConceptThreads: 20,
+    maxResearchSteps: 20,
+    minRelatedThreads: 10,
+    minParticipantHistories: 10,
+    minConceptThreads: 10,
     maxGmailUnits: 4000,
     maxConcurrentGmail: 10,
-    searchPageSize: 50,
-    searchMaxPages: 20,
-    detailBatchSize: 20
+    searchPageSize: 30,
+    searchMaxPages: 10,
+    detailBatchSize: 10
   }
 };
 
