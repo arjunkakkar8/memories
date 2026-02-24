@@ -4,11 +4,11 @@ export const STORY_DEFAULT_MODEL = 'openai/gpt-4o-mini';
 export const STORY_MAX_LLM_RETRIES = 2;
 
 export const STORY_OPENROUTER_ZERO_RETENTION_DEFAULTS = {
-  provider: {
-    allow_fallbacks: false,
-    data_collection: 'deny',
-    zdr: true
-  }
+	provider: {
+		allow_fallbacks: false,
+		data_collection: 'deny',
+		zdr: true
+	}
 } as const;
 
 export const STORY_LLM_BACKOFF_BASE_MS = 180;
@@ -26,6 +26,7 @@ export const STORY_TIMELINE_FALLBACK_RESULTS = 3;
 export const STORY_NETWORK_FALLBACK_PARTICIPANTS = 2;
 export const STORY_NETWORK_FALLBACK_RESULTS_PER_PARTICIPANT = 2;
 export const STORY_SEARCH_MIN_RESULTS_FALLBACK = 2;
+export const STORY_WRITER_MAX_PROMPT_TOKENS = 130_000;
 
 export const STORY_GMAIL_API_BASE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 export const STORY_GMAIL_THREAD_LIST_UNIT_COST = 10;
@@ -51,159 +52,159 @@ export const STORY_GMAIL_PARTICIPANT_NETWORK_DEFAULT_RESULTS_PER_PARTICIPANT = 1
 export const STORY_GMAIL_PARTICIPANT_NETWORK_MIN_BASE_RESULTS = 10;
 
 export const STORY_GMAIL_RETRYABLE_403_REASONS = new Set([
-  'rateLimitExceeded',
-  'userRateLimitExceeded',
-  'backendError',
-  'internalError'
+	'rateLimitExceeded',
+	'userRateLimitExceeded',
+	'backendError',
+	'internalError'
 ]);
 
 export const STORY_STOPWORDS = new Set([
-  'the',
-  'and',
-  'for',
-  'that',
-  'with',
-  'from',
-  'this',
-  'about',
-  'have',
-  'will',
-  'were',
-  'been',
-  'just',
-  'into',
-  'your',
-  'ours',
-  'they',
-  'them',
-  'please',
-  'thank',
-  'email',
-  'thread'
+	'the',
+	'and',
+	'for',
+	'that',
+	'with',
+	'from',
+	'this',
+	'about',
+	'have',
+	'will',
+	'were',
+	'been',
+	'just',
+	'into',
+	'your',
+	'ours',
+	'they',
+	'them',
+	'please',
+	'thank',
+	'email',
+	'thread'
 ]);
 
 type StoryExplorationProfileConfig = {
-  maxResearchSteps: number;
-  minRelatedThreads: number;
-  minParticipantHistories: number;
-  minConceptThreads: number;
-  maxGmailUnits: number;
-  maxConcurrentGmail: number;
-  searchPageSize: number;
-  searchMaxPages: number;
-  detailBatchSize: number;
+	maxResearchSteps: number;
+	minRelatedThreads: number;
+	minParticipantHistories: number;
+	minConceptThreads: number;
+	maxGmailUnits: number;
+	maxConcurrentGmail: number;
+	searchPageSize: number;
+	searchMaxPages: number;
+	detailBatchSize: number;
 };
 
 const STORY_EXPLORATION_HARD_CAPS = {
-  maxResearchSteps: 18,
-  minRelatedThreads: 20,
-  minParticipantHistories: 20,
-  minConceptThreads: 20,
-  searchPageSize: 50,
-  searchMaxPages: 20,
-  detailBatchSize: 20
+	maxResearchSteps: 18,
+	minRelatedThreads: 20,
+	minParticipantHistories: 20,
+	minConceptThreads: 20,
+	searchPageSize: 50,
+	searchMaxPages: 20,
+	detailBatchSize: 20
 } as const;
 
 export const STORY_EXPLORATION_PROFILE_DEFAULTS: Record<
-  StoryExplorationProfile,
-  StoryExplorationProfileConfig
+	StoryExplorationProfile,
+	StoryExplorationProfileConfig
 > = {
-  fast: {
-    maxResearchSteps: 4,
-    minRelatedThreads: 2,
-    minParticipantHistories: 1,
-    minConceptThreads: 1,
-    maxGmailUnits: 220,
-    maxConcurrentGmail: 3,
-    searchPageSize: 12,
-    searchMaxPages: 2,
-    detailBatchSize: 2
-  },
-  balanced: {
-    maxResearchSteps: 7,
-    minRelatedThreads: 4,
-    minParticipantHistories: 2,
-    minConceptThreads: 2,
-    maxGmailUnits: 520,
-    maxConcurrentGmail: 4,
-    searchPageSize: 18,
-    searchMaxPages: 3,
-    detailBatchSize: 4
-  },
-  deep: {
-    maxResearchSteps: 20,
-    minRelatedThreads: 10,
-    minParticipantHistories: 10,
-    minConceptThreads: 10,
-    maxGmailUnits: 4000,
-    maxConcurrentGmail: 10,
-    searchPageSize: 30,
-    searchMaxPages: 10,
-    detailBatchSize: 10
-  }
+	fast: {
+		maxResearchSteps: 4,
+		minRelatedThreads: 2,
+		minParticipantHistories: 1,
+		minConceptThreads: 1,
+		maxGmailUnits: 220,
+		maxConcurrentGmail: 3,
+		searchPageSize: 12,
+		searchMaxPages: 2,
+		detailBatchSize: 2
+	},
+	balanced: {
+		maxResearchSteps: 7,
+		minRelatedThreads: 4,
+		minParticipantHistories: 2,
+		minConceptThreads: 2,
+		maxGmailUnits: 520,
+		maxConcurrentGmail: 4,
+		searchPageSize: 18,
+		searchMaxPages: 3,
+		detailBatchSize: 4
+	},
+	deep: {
+		maxResearchSteps: 20,
+		minRelatedThreads: 10,
+		minParticipantHistories: 10,
+		minConceptThreads: 10,
+		maxGmailUnits: 4000,
+		maxConcurrentGmail: 10,
+		searchPageSize: 30,
+		searchMaxPages: 10,
+		detailBatchSize: 10
+	}
 };
 
 export type StoryEffectiveExplorationSettings = StoryExplorationProfileConfig & {
-  profile: StoryExplorationProfile;
+	profile: StoryExplorationProfile;
 };
 
 function clamp(value: number | undefined, min: number, max: number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return min;
-  }
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		return min;
+	}
 
-  return Math.max(min, Math.min(max, Math.floor(value)));
+	return Math.max(min, Math.min(max, Math.floor(value)));
 }
 
 function resolveOverride(
-  value: number | undefined,
-  fallback: number,
-  min: number,
-  max: number
+	value: number | undefined,
+	fallback: number,
+	min: number,
+	max: number
 ): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return fallback;
-  }
+	if (typeof value !== 'number' || !Number.isFinite(value)) {
+		return fallback;
+	}
 
-  return Math.max(min, Math.min(max, Math.floor(value)));
+	return Math.max(min, Math.min(max, Math.floor(value)));
 }
 
 export function resolveStoryExplorationSettings(
-  exploration?: StoryExplorationOptions
+	exploration?: StoryExplorationOptions
 ): StoryEffectiveExplorationSettings {
-  const profile = exploration?.profile ?? 'deep';
-  const base = STORY_EXPLORATION_PROFILE_DEFAULTS[profile];
+	const profile = exploration?.profile ?? 'deep';
+	const base = STORY_EXPLORATION_PROFILE_DEFAULTS[profile];
 
-  return {
-    profile,
-    maxResearchSteps: resolveOverride(
-      exploration?.maxResearchSteps,
-      base.maxResearchSteps,
-      1,
-      STORY_EXPLORATION_HARD_CAPS.maxResearchSteps
-    ),
-    minRelatedThreads: resolveOverride(
-      exploration?.minRelatedThreads,
-      base.minRelatedThreads,
-      0,
-      STORY_EXPLORATION_HARD_CAPS.minRelatedThreads
-    ),
-    minParticipantHistories: resolveOverride(
-      exploration?.minParticipantHistories,
-      base.minParticipantHistories,
-      0,
-      STORY_EXPLORATION_HARD_CAPS.minParticipantHistories
-    ),
-    minConceptThreads: resolveOverride(
-      exploration?.minConceptThreads,
-      base.minConceptThreads,
-      0,
-      STORY_EXPLORATION_HARD_CAPS.minConceptThreads
-    ),
-    maxGmailUnits: base.maxGmailUnits,
-    maxConcurrentGmail: base.maxConcurrentGmail,
-    searchPageSize: clamp(base.searchPageSize, 1, STORY_EXPLORATION_HARD_CAPS.searchPageSize),
-    searchMaxPages: clamp(base.searchMaxPages, 1, STORY_EXPLORATION_HARD_CAPS.searchMaxPages),
-    detailBatchSize: clamp(base.detailBatchSize, 1, STORY_EXPLORATION_HARD_CAPS.detailBatchSize)
-  };
+	return {
+		profile,
+		maxResearchSteps: resolveOverride(
+			exploration?.maxResearchSteps,
+			base.maxResearchSteps,
+			1,
+			STORY_EXPLORATION_HARD_CAPS.maxResearchSteps
+		),
+		minRelatedThreads: resolveOverride(
+			exploration?.minRelatedThreads,
+			base.minRelatedThreads,
+			0,
+			STORY_EXPLORATION_HARD_CAPS.minRelatedThreads
+		),
+		minParticipantHistories: resolveOverride(
+			exploration?.minParticipantHistories,
+			base.minParticipantHistories,
+			0,
+			STORY_EXPLORATION_HARD_CAPS.minParticipantHistories
+		),
+		minConceptThreads: resolveOverride(
+			exploration?.minConceptThreads,
+			base.minConceptThreads,
+			0,
+			STORY_EXPLORATION_HARD_CAPS.minConceptThreads
+		),
+		maxGmailUnits: base.maxGmailUnits,
+		maxConcurrentGmail: base.maxConcurrentGmail,
+		searchPageSize: clamp(base.searchPageSize, 1, STORY_EXPLORATION_HARD_CAPS.searchPageSize),
+		searchMaxPages: clamp(base.searchMaxPages, 1, STORY_EXPLORATION_HARD_CAPS.searchMaxPages),
+		detailBatchSize: clamp(base.detailBatchSize, 1, STORY_EXPLORATION_HARD_CAPS.detailBatchSize)
+	};
 }

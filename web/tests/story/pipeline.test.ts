@@ -179,14 +179,14 @@ describe('runStoryPipeline', () => {
 			searchThreadsByTimeWindow: expect.any(Object),
 			expandParticipantNetwork: expect.any(Object)
 		});
-		expect(researchCall?.stopWhen).toEqual({ type: 'step-count-is', count: 12 });
+		expect(researchCall?.stopWhen).toEqual({ type: 'step-count-is', count: 20 });
 		expect(researchCall?.prompt).toContain('Coverage minimums');
 		expect(researchCall?.prompt).toContain('Exploration profile: deep');
 
 		const writingCall = vi.mocked(generateText).mock.calls[1]?.[0];
-		expect(writingCall?.prompt).toContain('Write one Markdown story');
+		expect(writingCall?.prompt).toContain('Write a narrative driven Markdown story');
 		expect(writingCall?.prompt).toContain('second-person');
-		expect(stepCountIs).toHaveBeenCalledWith(12);
+		expect(stepCountIs).toHaveBeenCalledWith(20);
 
 		expect(result).toMatchObject({
 			story: 'The story text.',
